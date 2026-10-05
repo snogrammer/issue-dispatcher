@@ -11,14 +11,15 @@ function issue(
   number: number,
   labels: string[],
   createdAt = `2026-01-0${String(number)}T00:00:00Z`,
+  assignees = ["bot"],
 ) {
   return {
     number,
     labels: labels.map((name, id) => ({ id, name })),
+    assignees: assignees.map((login, id) => ({ id, login })),
     created_at: createdAt,
   } as Issue;
 }
-
 function pull(number: number, head: string, base = "main") {
   return { number, head: { ref: head }, base: { ref: base } } as PullRequest;
 }
@@ -75,6 +76,14 @@ describe("rebuildFromGitea", () => {
 
     const report = await rebuildFromGitea(store, client, OPTIONS);
 
+    expect(report.restored).toEqual([]);
+    expect(store.activeIssue("org/repo")).toBeNull();
+  });
+
+  it("ignores labeled issues not assigned to the bot even if the server returns them", async () => {
+    const store = StateStore.inMemory();
+    const { client } = fakeClient([issue(8, ["claude:working"], undefined, ["someone"])]);
+    const report = await rebuildFromGitea(store, client, OPTIONS);
     expect(report.restored).toEqual([]);
     expect(store.activeIssue("org/repo")).toBeNull();
   });

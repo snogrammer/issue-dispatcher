@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+
+import { FakeGitea } from "../../test/helpers/fake-gitea.js";
+import { resolveRepos } from "./repos.js";
+
+describe("resolveRepos", () => {
+  it("combines explicit repos and org repos, deduplicated and sorted", async () => {
+    const gitea = new FakeGitea("bot");
+    gitea.addRepo("team/b", { defaultBranch: "develop" });
+    gitea.addRepo("team/a");
+    gitea.addRepo("other/x");
+
+    const { repos, skipped } = await resolveRepos(
+      { repos: ["team/b", "other/x"], orgs: ["team"] },
+      gitea,
+    );
+
+    expect(repos).toEqual([
+      { ref: { owner: "other", name: "x" }, fullName: "other/x", defaultBranch: "main" },
+      { ref: { owner: "team", name: "a" }, fullName: "team/a", defaultBranch: "main" },
+      { ref: { owner: "team", name: "b" }, fullName: "team/b", defaultBranch: "develop" },
+    ]);
+    expect(skipped).toEqual([]);
+  });
+
+  it("reports missing, archived and empty repos instead of failing", async () => {
+    const gitea = new FakeGitea("bot");
+    gitea.addRepo("team/old", { archived: true });
+    gitea.addRepo("team/new", { empty: true });
+
+    const { repos, skipped } = await resolveRepos(
+      { repos: ["team/gone", "team/old"], orgs: ["team"] },
+      gitea,
+    );
+
+    expect(repos).toEqual([]);
+    expect(skipped).toEqual([
+      { name: "team/gone", reason: "GET /repos/team/gone failed (404): not found" },
+      { name: "team/old", reason: "archived" },
+      { name: "team/new", reason: "empty" },
+    ]);
+  });
+});

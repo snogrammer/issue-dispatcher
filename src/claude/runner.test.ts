@@ -120,6 +120,13 @@ describe("runClaude", () => {
     expect(call.env).toEqual({ GITEA_TOKEN: null, KEEP_ME: "yes" });
   });
 
+  it("uses a caller-chosen ID for a new session", async () => {
+    const { options, request, recorded } = setup("success");
+    const result = await runClaude(options, { ...request, sessionId: "chosen-id" });
+    expect(result.sessionId).toBe("chosen-id");
+    expect(argAfter(recorded().args, "--session-id")).toBe("chosen-id");
+  });
+
   it("resumes an existing session", async () => {
     const { options, request, recorded } = setup("success");
     const result = await runClaude(options, { ...request, resumeSessionId: "old-session" });
@@ -150,6 +157,16 @@ describe("runClaude", () => {
     expect(result).toMatchObject({
       kind: "rate_limited",
       rateLimit: { status: "rejected", resetsAt: new Date(1800000000_000) },
+    });
+  });
+
+  it("recognizes a resume of a session the CLI doesn't have", async () => {
+    const { options, request } = setup("session-missing");
+    const result = await runClaude(options, { ...request, resumeSessionId: "gone" });
+    expect(result).toMatchObject({
+      kind: "session_not_found",
+      sessionId: "gone",
+      error: "No conversation found with session ID: gone",
     });
   });
 

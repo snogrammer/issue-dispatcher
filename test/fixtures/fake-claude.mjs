@@ -98,6 +98,18 @@ function run() {
       result({ is_error: true, result: "Claude AI usage limit reached" });
       process.exitCode = 1;
       return;
+    case "session-missing":
+      // Shape from Claude Code 2.1.289 when --resume names an unknown session.
+      result({
+        subtype: "error_during_execution",
+        is_error: true,
+        num_turns: 0,
+        total_cost_usd: 0,
+        errors: [`No conversation found with session ID: ${sessionId}`],
+      });
+      process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
+      process.exitCode = 1;
+      return;
     case "malformed":
       process.stdout.write('this is not json\n{"half":\n');
       process.stderr.write("boom: something broke\n");
