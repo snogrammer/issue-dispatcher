@@ -29,6 +29,8 @@ export interface IssueWork {
   sessionId: string | null;
   fixAttempts: number;
   lastSha: string | null;
+  /** When `lastSha` last changed. */
+  headSince: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -39,6 +41,7 @@ export interface WorkPatch {
   prStack?: number[];
   sessionId?: string | null;
   fixAttempts?: number;
+  /** Also records `headSince` when the SHA actually changes. */
   lastSha?: string | null;
 }
 
@@ -102,6 +105,7 @@ interface WorkRow {
   session_id: string | null;
   fix_attempts: number;
   last_sha: string | null;
+  head_since: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -210,7 +214,7 @@ export class StateStore {
         this.db
           .prepare(
             `UPDATE issue_work SET state = ?, branch = ?, pr_stack = '[]', session_id = NULL,
-               fix_attempts = 0, last_sha = NULL, updated_at = ?
+               fix_attempts = 0, last_sha = NULL, head_since = NULL, updated_at = ?
              WHERE repo = ? AND issue = ?`,
           )
           .run(initial.state ?? "working", initial.branch ?? null, now, repo, issue);
@@ -361,6 +365,10 @@ export class StateStore {
       sets.push(`${columns[key]} = ?`);
       values.push(key === "prStack" ? JSON.stringify(patch[key]) : patch[key]);
     }
+    if (patch.lastSha !== undefined && patch.lastSha !== this.getWork(repo, issue)?.lastSha) {
+      sets.push("head_since = ?");
+      values.push(patch.lastSha === null ? null : this.timestamp());
+    }
     sets.push("updated_at = ?");
     values.push(this.timestamp(), repo, issue);
     this.db
@@ -412,6 +420,7 @@ function toWork(row: WorkRow): IssueWork {
     sessionId: row.session_id,
     fixAttempts: row.fix_attempts,
     lastSha: row.last_sha,
+    headSince: row.head_since,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

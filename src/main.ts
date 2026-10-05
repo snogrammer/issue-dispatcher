@@ -4,6 +4,7 @@ import { runClaude, runnerOptionsFromConfig } from "./claude/runner.js";
 import { ConfigError, loadConfig, redactConfig } from "./config/load.js";
 import type { Config } from "./config/schema.js";
 import { Engine } from "./engine/engine.js";
+import { prLifecycle } from "./engine/pr-lifecycle.js";
 import { GiteaClient } from "./gitea/client.js";
 import { GiteaError } from "./gitea/http.js";
 import { createLogger, type Logger } from "./log.js";
@@ -31,6 +32,7 @@ export function createApp(config: Config, log: Logger): App {
     gitea,
     store,
     log,
+    lifecycle: prLifecycle({ config, gitea, log }),
     workspace: (repo) =>
       new Workspace(
         {

@@ -6,14 +6,22 @@
  */
 import type { EngineGitea } from "../../src/engine/engine.js";
 import { GiteaError } from "../../src/gitea/http.js";
+import type { MergePullInput } from "../../src/gitea/client.js";
 import type {
+  CombinedStatus,
   Comment,
+  CommitStatus,
   Issue,
   Label,
   PullRequest,
+  PullReview,
   RepoRef,
   Repository,
+  ReviewComment,
+  StatusState,
   User,
+  WorkflowJob,
+  WorkflowRun,
 } from "../../src/gitea/types.js";
 
 export interface IssueSeed {
@@ -36,13 +44,27 @@ export class FakeGitea implements EngineGitea {
   readonly comments: { repo: string; issue: number; author: string; body: string }[] = [];
   readonly dependencies = new Map<string, number[]>();
   readonly calls: string[] = [];
+  readonly pulls = new Map<string, PullRequest[]>();
+  /** Commit statuses by SHA. */
+  readonly statuses = new Map<string, CommitStatus[]>();
+  readonly reviews = new Map<string, (PullReview & { comments: ReviewComment[] })[]>();
+  readonly runs: (WorkflowRun & { repo: string; jobs: (WorkflowJob & { log: string })[] })[] = [];
+  readonly deletedBranches: string[] = [];
+  readonly merges: { repo: string; pull: number; input: MergePullInput }[] = [];
+  /** Make the next merge fail with this HTTP status and message. */
+  mergeFailure: { status: number; message: string } | undefined;
   private nextId = 1;
 
   constructor(private readonly botLogin: string) {}
 
   addRepo(
     fullName: string,
-    options: { archived?: boolean; empty?: boolean; defaultBranch?: string } = {},
+    options: {
+      archived?: boolean;
+      empty?: boolean;
+      defaultBranch?: string;
+      mergeStyle?: string;
+    } = {},
   ): void {
     const [owner = "", name = ""] = fullName.split("/");
     this.repos.set(fullName, {
@@ -51,6 +73,7 @@ export class FakeGitea implements EngineGitea {
       full_name: fullName,
       owner: user(owner),
       default_branch: options.defaultBranch ?? "main",
+      default_merge_style: options.mergeStyle ?? "merge",
       archived: options.archived ?? false,
       empty: options.empty ?? false,
     });
@@ -93,6 +116,84 @@ export class FakeGitea implements EngineGitea {
 
   commentsOn(repo: string, number: number): string[] {
     return this.comments.filter((c) => c.repo === repo && c.issue === number).map((c) => c.body);
+  }
+
+  /** A push moved `branch`; open PRs from it now have that head. */
+  setBranchHead(repo: string, branch: string, sha: string): void {
+    this.branchHeads.set(`${repo}:${branch}`, sha);
+    for (const pull of this.pulls.get(repo) ?? []) {
+      if (pull.head.ref === branch && pull.state === "open") pull.head.sha = sha;
+    }
+  }
+
+  pull(repo: string, number: number): PullRequest {
+    const pull = (this.pulls.get(repo) ?? []).find((p) => p.number === number);
+    if (!pull) throw new Error(`no PR ${repo}#${String(number)}`);
+    return pull;
+  }
+
+  setStatus(sha: string, ...states: StatusState[]): void {
+    this.statuses.set(
+      sha,
+      states.map((status, i) => ({
+        id: i,
+        context: `CI / check ${String(i)}`,
+        status,
+        description: `check ${status}`,
+        target_url: `https://ci.example.com/${sha}/${String(i)}`,
+        created_at: "",
+        updated_at: "",
+      })),
+    );
+  }
+
+  addReview(
+    repo: string,
+    pull: number,
+    review: Partial<PullReview> & { comments?: ReviewComment[] },
+  ): void {
+    const key = `${repo}#${String(pull)}`;
+    const list = this.reviews.get(key) ?? [];
+    list.push({
+      id: this.nextId++,
+      state: "REQUEST_CHANGES",
+      body: "",
+      user: user(REVIEWER_DEFAULT),
+      commit_id: this.pull(repo, pull).head.sha,
+      stale: false,
+      dismissed: false,
+      submitted_at: "",
+      comments: [],
+      ...review,
+    });
+    this.reviews.set(key, list);
+  }
+
+  addFailedRun(repo: string, sha: string, jobName: string, log: string): void {
+    const id = this.nextId++;
+    this.runs.push({
+      repo,
+      id,
+      status: "completed",
+      conclusion: "failure",
+      event: "pull_request",
+      head_branch: null,
+      head_sha: sha,
+      html_url: `https://gitea.example.com/${repo}/actions/runs/${String(id)}`,
+      started_at: null,
+      completed_at: null,
+      jobs: [
+        {
+          id: this.nextId++,
+          run_id: id,
+          name: jobName,
+          status: "completed",
+          conclusion: "failure",
+          html_url: `https://gitea.example.com/${repo}/actions/runs/${String(id)}/jobs/0`,
+          log,
+        },
+      ],
+    });
   }
 
   // --- EngineGitea ------------------------------------------------------------
@@ -213,8 +314,137 @@ export class FakeGitea implements EngineGitea {
     return Promise.resolve();
   }
 
-  listPulls(): Promise<PullRequest[]> {
-    return Promise.resolve([]);
+  listPulls(
+    ref: RepoRef,
+    filter: { state?: "open" | "closed" | "all" } = {},
+  ): Promise<PullRequest[]> {
+    const state = filter.state ?? "open";
+    return Promise.resolve(
+      (this.pulls.get(key(ref)) ?? [])
+        .filter((pull) => state === "all" || pull.state === state)
+        .map((pull) => structuredClone(pull)),
+    );
+  }
+
+  getPull(ref: RepoRef, index: number): Promise<PullRequest> {
+    return Promise.resolve(structuredClone(this.pull(key(ref), index)));
+  }
+
+  createPull(
+    ref: RepoRef,
+    input: { head: string; base: string; title: string; body?: string },
+  ): Promise<PullRequest> {
+    const repo = key(ref);
+    // PRs and issues share numbers in Gitea.
+    const number =
+      Math.max(
+        0,
+        ...this.repoIssues(repo).keys(),
+        ...(this.pulls.get(repo) ?? []).map((p) => p.number),
+      ) + 1;
+    this.calls.push(`createPull ${repo} ${input.head} -> ${input.base}`);
+    const pull: PullRequest = {
+      id: this.nextId++,
+      number,
+      title: input.title,
+      body: input.body ?? "",
+      state: "open",
+      draft: false,
+      merged: false,
+      mergeable: true,
+      merge_commit_sha: null,
+      html_url: `https://gitea.example.com/${repo}/pulls/${String(number)}`,
+      user: user(this.botLogin),
+      labels: [],
+      head: { label: input.head, ref: input.head, sha: this.headOf(repo, input.head) },
+      base: { label: input.base, ref: input.base, sha: "base-sha" },
+      updated_at: "",
+    };
+    this.pulls.set(repo, [...(this.pulls.get(repo) ?? []), pull]);
+    return Promise.resolve(structuredClone(pull));
+  }
+
+  retargetPull(ref: RepoRef, index: number, base: string): Promise<PullRequest> {
+    const pull = this.pull(key(ref), index);
+    this.calls.push(`retarget ${key(ref)}#${String(index)} -> ${base}`);
+    pull.base = { label: base, ref: base, sha: "base-sha" };
+    return Promise.resolve(structuredClone(pull));
+  }
+
+  mergePull(ref: RepoRef, index: number, input: MergePullInput): Promise<void> {
+    if (this.mergeFailure) {
+      const { status, message } = this.mergeFailure;
+      return Promise.reject(new GiteaError("POST", "/merge", status, message));
+    }
+    const pull = this.pull(key(ref), index);
+    this.calls.push(`merge ${key(ref)}#${String(index)}`);
+    this.merges.push({ repo: key(ref), pull: index, input });
+    pull.merged = true;
+    pull.state = "closed";
+    if (input.deleteBranch) this.deletedBranches.push(pull.head.ref);
+    return Promise.resolve();
+  }
+
+  listPullReviews(ref: RepoRef, index: number): Promise<PullReview[]> {
+    return Promise.resolve(
+      (this.reviews.get(`${key(ref)}#${String(index)}`) ?? []).map(({ comments: _, ...r }) => r),
+    );
+  }
+
+  listReviewComments(ref: RepoRef, index: number, reviewId: number): Promise<ReviewComment[]> {
+    const review = (this.reviews.get(`${key(ref)}#${String(index)}`) ?? []).find(
+      (r) => r.id === reviewId,
+    );
+    return Promise.resolve(review?.comments ?? []);
+  }
+
+  getCombinedStatus(_ref: RepoRef, sha: string): Promise<CombinedStatus> {
+    const statuses = this.statuses.get(sha) ?? [];
+    const states = statuses.map((s) => s.status);
+    const state: StatusState = states.some((s) => s === "failure" || s === "error")
+      ? "failure"
+      : states.includes("pending") || states.length === 0
+        ? "pending"
+        : "success";
+    return Promise.resolve({ sha, state, total_count: statuses.length, statuses });
+  }
+
+  listWorkflowRuns(ref: RepoRef, filter: { headSha?: string } = {}): Promise<WorkflowRun[]> {
+    return Promise.resolve(
+      this.runs
+        .filter(
+          (run) => run.repo === key(ref) && (!filter.headSha || run.head_sha === filter.headSha),
+        )
+        .map(({ repo: _, jobs: __, ...run }) => run),
+    );
+  }
+
+  listRunJobs(_ref: RepoRef, runId: number): Promise<WorkflowJob[]> {
+    const run = this.runs.find((r) => r.id === runId);
+    return Promise.resolve((run?.jobs ?? []).map(({ log: _, ...job }) => job));
+  }
+
+  getJobLogs(_ref: RepoRef, jobId: number): Promise<string> {
+    const job = this.runs.flatMap((r) => r.jobs).find((j) => j.id === jobId);
+    return Promise.resolve(job?.log ?? "");
+  }
+
+  deleteBranch(ref: RepoRef, branch: string): Promise<void> {
+    this.calls.push(`deleteBranch ${key(ref)} ${branch}`);
+    this.deletedBranches.push(branch);
+    return Promise.resolve();
+  }
+
+  closeIssue(ref: RepoRef, index: number): Promise<Issue> {
+    const issue = this.issue(key(ref), index);
+    this.calls.push(`closeIssue ${key(ref)}#${String(index)}`);
+    issue.state = "closed";
+    return Promise.resolve(structuredClone(issue));
+  }
+
+  /** Comment as someone other than the bot (e.g. the reviewer typing /merge). */
+  commentAs(repo: string, index: number, author: string, body: string): void {
+    this.comments.push({ repo, issue: index, author, body });
   }
 
   // --- Internals --------------------------------------------------------------
@@ -235,7 +465,15 @@ export class FakeGitea implements EngineGitea {
     if (!label) throw new GiteaError("POST", "/labels", 422, `unknown label ${name}`);
     return label;
   }
+
+  private readonly branchHeads = new Map<string, string>();
+
+  private headOf(repo: string, branch: string): string {
+    return this.branchHeads.get(`${repo}:${branch}`) ?? `${branch}-head`;
+  }
 }
+
+const REVIEWER_DEFAULT = "human";
 
 function key(ref: RepoRef): string {
   return `${ref.owner}/${ref.name}`;

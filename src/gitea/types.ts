@@ -20,6 +20,8 @@ export interface Repository {
   full_name: string;
   owner: User;
   default_branch: string;
+  /** The repo's configured default for the merge button. */
+  default_merge_style?: string;
   archived: boolean;
   empty: boolean;
   permissions?: { admin: boolean; push: boolean; pull: boolean };

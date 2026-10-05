@@ -70,6 +70,7 @@ describe("repo slots", () => {
       sessionId: null,
       fixAttempts: 0,
       lastSha: null,
+      headSince: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
@@ -142,6 +143,20 @@ describe("updateWork", () => {
       updatedAt: "2026-01-01T00:00:01.000Z",
     });
     expect(store.updateWork(REPO, 4, { branch: null }).branch).toBeNull();
+  });
+
+  it("records when the head SHA last changed", () => {
+    const { now, advance } = clock();
+    const store = StateStore.inMemory({ now });
+    store.claim(REPO, 4);
+    advance(1000);
+    expect(store.updateWork(REPO, 4, { lastSha: "a" }).headSince).toBe("2026-01-01T00:00:01.000Z");
+    advance(1000);
+    expect(store.updateWork(REPO, 4, { lastSha: "a", fixAttempts: 1 }).headSince).toBe(
+      "2026-01-01T00:00:01.000Z",
+    );
+    advance(1000);
+    expect(store.updateWork(REPO, 4, { lastSha: "b" }).headSince).toBe("2026-01-01T00:00:03.000Z");
   });
 
   it("refuses to update an issue that doesn't hold the slot", () => {

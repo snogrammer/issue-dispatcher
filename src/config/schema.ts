@@ -77,6 +77,10 @@ export const configSchema = z
     maxConcurrentSessions: z.int().min(1).default(1),
     maxFixAttempts: z.int().min(0).default(3),
     requireCi: z.boolean().default(true),
+    /** Overrides each repo's default merge style when set. */
+    mergeStyle: z
+      .enum(["merge", "rebase", "rebase-merge", "squash", "fast-forward-only"])
+      .optional(),
     ciMaxQueue: z.int().min(1).default(2),
     ciNoStatusTimeoutMin: z.int().min(1).default(15),
     claude: z
