@@ -5,7 +5,7 @@
  * value came from, and a test checks that every entry is documented.
  */
 
-export type EnvKind = "string" | "int" | "bool" | "list";
+export type EnvKind = "string" | "int" | "number" | "bool" | "list";
 
 export interface EnvVar {
   readonly name: string;
@@ -31,6 +31,10 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "CI_NO_STATUS_TIMEOUT_MIN", path: ["ciNoStatusTimeoutMin"], kind: "int" },
   { name: "CLAUDE_BIN", path: ["claude", "bin"], kind: "string" },
   { name: "CLAUDE_TIMEOUT_MIN", path: ["claude", "timeoutMin"], kind: "int" },
+  { name: "CLAUDE_PERMISSION_MODE", path: ["claude", "permissionMode"], kind: "string" },
+  { name: "CLAUDE_MAX_BUDGET_USD", path: ["claude", "maxBudgetUsd"], kind: "number" },
+  { name: "GIT_USER_NAME", path: ["git", "userName"], kind: "string" },
+  { name: "GIT_USER_EMAIL", path: ["git", "userEmail"], kind: "string" },
   { name: "CLAUDE_MODEL", path: ["routing", "default", "model"], kind: "string" },
   { name: "CLAUDE_EFFORT", path: ["routing", "default", "effort"], kind: "string" },
   { name: "CLAUDE_MAX_TURNS", path: ["routing", "default", "maxTurns"], kind: "int" },
@@ -57,6 +61,8 @@ export function parseEnvValue(kind: EnvKind, raw: string): unknown {
       return raw;
     case "int":
       return /^-?\d+$/.test(raw) ? Number(raw) : raw;
+    case "number":
+      return /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
     case "bool": {
       const word = raw.toLowerCase();
       if (TRUE_WORDS.has(word)) return true;

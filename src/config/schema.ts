@@ -12,6 +12,12 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /** Phases of work on an issue; each can be routed to its own model/effort. */
 export const PHASES = ["implement", "fix-ci", "address-review", "rebase"] as const;
+
+/**
+ * `claude --permission-mode` values usable unattended. `manual` and `plan`
+ * would stall or never edit, so they're not offered.
+ */
+export const PERMISSION_MODES = ["bypassPermissions", "acceptEdits", "auto", "dontAsk"] as const;
 export type Phase = (typeof PHASES)[number];
 
 const REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
@@ -77,6 +83,15 @@ export const configSchema = z
       .strictObject({
         bin: z.string().min(1).default("claude"),
         timeoutMin: z.int().min(1).default(60),
+        permissionMode: z.enum(PERMISSION_MODES).default("bypassPermissions"),
+        maxBudgetUsd: z.number().positive().optional(),
+      })
+      .prefault({}),
+    /** Commit identity in workspaces; defaults derive from the bot account. */
+    git: z
+      .strictObject({
+        userName: z.string().min(1).optional(),
+        userEmail: z.email().optional(),
       })
       .prefault({}),
     routing: routing.prefault({}),
@@ -91,6 +106,16 @@ export const configSchema = z
   .refine((config) => config.repos.length + config.orgs.length > 0, {
     message: "set at least one repo (REPOS) or org (ORGS) to watch",
     path: ["repos"],
-  });
+  })
+  .transform((config) => ({
+    ...config,
+    git: {
+      userName: config.git.userName ?? config.gitea.botUsername,
+      // Gitea's default no-reply domain is `noreply.<host>`.
+      userEmail:
+        config.git.userEmail ??
+        `${config.gitea.botUsername}@noreply.${new URL(config.gitea.url).hostname}`,
+    },
+  }));
 
 export type Config = z.infer<typeof configSchema>;
