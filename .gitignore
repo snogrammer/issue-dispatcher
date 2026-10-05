@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Runtime state (see DATA_DIR / WORKSPACE_DIR in .env.example)
+data/
+workspaces/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Local agent tooling output
+observability/
+.DS_Store
