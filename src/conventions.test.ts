@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   branchName,
+  effortLabel,
   issueFromBranch,
+  modelLabel,
+  priorityLabel,
+  questionLabel,
   stateFromLabels,
   stateLabel,
   stateLabels,
@@ -19,6 +23,15 @@ describe("state labels", () => {
     expect(stateFromLabels("claude", ["claude:working", "claude:blocked"])).toBe("blocked");
     expect(stateFromLabels("claude", ["claude:in-review", "claude:working"])).toBe("in-review");
     expect(stateFromLabels("claude", ["other:working"])).toBeUndefined();
+  });
+});
+
+describe("other labels", () => {
+  it("prefixes questions but not routing or priority labels", () => {
+    expect(questionLabel("claude")).toBe("claude:question");
+    expect(modelLabel("opus")).toBe("model:opus");
+    expect(effortLabel("high")).toBe("effort:high");
+    expect(priorityLabel("low")).toBe("priority:low");
   });
 });
 

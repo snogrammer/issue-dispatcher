@@ -34,6 +34,7 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "CLAUDE_MODEL", path: ["routing", "default", "model"], kind: "string" },
   { name: "CLAUDE_EFFORT", path: ["routing", "default", "effort"], kind: "string" },
   { name: "CLAUDE_MAX_TURNS", path: ["routing", "default", "maxTurns"], kind: "int" },
+  { name: "MODEL_LABELS", path: ["routing", "modelLabels"], kind: "list" },
   { name: "WORKSPACE_DIR", path: ["paths", "workspaceDir"], kind: "string" },
   { name: "DATA_DIR", path: ["paths", "dataDir"], kind: "string" },
   { name: "LOG_LEVEL", path: ["logLevel"], kind: "string" },
