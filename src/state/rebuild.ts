@@ -49,9 +49,11 @@ export async function rebuildFromGitea(
       assignee: options.botUsername,
       labels,
     });
-    // Re-check labels locally: Gitea drops label names that don't exist from the
-    // filter, and with none left it returns every assigned issue (seen on 1.27).
+    // Re-check assignee and labels locally: Gitea drops label names that don't
+    // exist from the filter, and with none left it returns every assigned issue
+    // (seen on 1.27). Don't trust the server-side filters alone.
     const active = issues
+      .filter((issue) => (issue.assignees ?? []).some((user) => user.login === options.botUsername))
       .map((issue) => ({
         issue,
         state: stateFromLabels(

@@ -22,7 +22,15 @@ import {
  */
 
 export type RunKind =
-  "success" | "rate_limited" | "max_turns" | "max_budget" | "timeout" | "aborted" | "error";
+  | "success"
+  | "rate_limited"
+  | "max_turns"
+  | "max_budget"
+  | "timeout"
+  | "aborted"
+  /** `--resume` named a session the CLI doesn't have; start a new one instead. */
+  | "session_not_found"
+  | "error";
 
 export interface ClaudeRunResult {
   kind: RunKind;
@@ -59,11 +67,14 @@ export interface RunRequest {
   route: RouteSpec & { maxTurns: number };
   /** Continue this session instead of starting a new one. */
   resumeSessionId?: string | undefined;
+  /** ID for a new session, so the caller can record it before the run starts. */
+  sessionId?: string | undefined;
   signal?: AbortSignal | undefined;
 }
 
 const STDERR_TAIL_BYTES = 8 * 1024;
 const USAGE_LIMIT_TEXT = /(usage|rate) limit|rate limited/i;
+const SESSION_NOT_FOUND = /^No conversation found with session ID/;
 
 export function runnerOptionsFromConfig(config: Config): RunnerOptions {
   return {
@@ -112,7 +123,7 @@ export function childEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function runClaude(options: RunnerOptions, request: RunRequest): Promise<ClaudeRunResult> {
-  const sessionId = request.resumeSessionId ?? randomUUID();
+  const sessionId = request.resumeSessionId ?? request.sessionId ?? randomUUID();
   const state = emptyStreamState();
   let stderrTail = "";
   let timedOut = false;
@@ -247,6 +258,9 @@ export function classify(state: StreamState, facts: ExitFacts): ClaudeRunResult 
     : "";
   if (state.rateLimit?.status === "rejected" || USAGE_LIMIT_TEXT.test(message)) {
     return { ...base, kind: "rate_limited", error: message || "rate limited" };
+  }
+  if (result?.errors.some((error) => SESSION_NOT_FOUND.test(error))) {
+    return { ...base, kind: "session_not_found", error: message };
   }
   if (result?.subtype === "error_max_turns") return { ...base, kind: "max_turns", error: message };
   if (result?.subtype === "error_max_budget_usd") {

@@ -1,29 +1,39 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
-import { ConfigError } from "./config/load.js";
-import { main } from "./main.js";
+import { describe, expect, it } from "vitest";
 
-const ENV = {
-  GITEA_URL: "https://gitea.example.com",
-  GITEA_TOKEN: "token",
-  BOT_USERNAME: "bot",
-  HUMAN_REVIEWER: "reviewer",
-  REPOS: "org/repo",
-  ORGS: "other",
-};
+import { ConfigError, loadConfig } from "./config/load.js";
+import { silentLogger } from "./log.js";
+import { createApp, main } from "./main.js";
 
 describe("main", () => {
-  it("logs who it runs as and what it watches", () => {
-    const log = vi.fn();
-    main(ENV, log);
-    expect(log).toHaveBeenCalledWith(
-      "claude-dispatcher starting as bot, watching org/repo, other/*",
-    );
+  it("rejects with ConfigError on invalid config before touching anything", async () => {
+    await expect(main({})).rejects.toThrow(ConfigError);
   });
+});
 
-  it("throws ConfigError on invalid config", () => {
-    expect(() => {
-      main({}, vi.fn());
-    }).toThrow(ConfigError);
+describe("createApp", () => {
+  it("wires the engine without network access and stops cleanly", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "dispatcher-app-"));
+    try {
+      const config = loadConfig({
+        env: {
+          GITEA_URL: "https://gitea.example.com",
+          GITEA_TOKEN: "t",
+          BOT_USERNAME: "bot",
+          HUMAN_REVIEWER: "human",
+          REPOS: "org/repo",
+          DATA_DIR: path.join(dir, "data"),
+          WORKSPACE_DIR: path.join(dir, "workspaces"),
+        },
+      });
+      const app = createApp(config, silentLogger);
+      expect(app.engine.running).toBe(0);
+      await app.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
