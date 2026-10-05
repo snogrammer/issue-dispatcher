@@ -51,7 +51,12 @@ describe("loadConfig from env", () => {
       ciMaxQueue: 2,
       ciNoStatusTimeoutMin: 15,
       claude: { bin: "claude", timeoutMin: 60 },
-      routing: { default: { maxTurns: 100 }, phases: {}, repos: {} },
+      routing: {
+        default: { maxTurns: 100 },
+        phases: {},
+        repos: {},
+        modelLabels: ["opus", "sonnet", "haiku"],
+      },
       logLevel: "info",
     });
     expect(config.paths.workspaceDir).toBe(path.resolve("workspaces"));
@@ -150,6 +155,7 @@ routing:
       default: { model: "opus", maxTurns: 50 },
       phases: { implement: { model: "opus", effort: "high" }, rebase: { model: "haiku" } },
       repos: { "org/repo": { effort: "max" } },
+      modelLabels: ["opus", "sonnet", "haiku"],
     });
   });
 

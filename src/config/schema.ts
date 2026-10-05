@@ -40,6 +40,13 @@ const routing = z.strictObject({
     .prefault({}),
   phases: z.partialRecord(z.enum(PHASES), routeSpec).default({}),
   repos: z.record(z.string().regex(REPO_PATTERN, "expected owner/repo"), routeSpec).default({}),
+  /**
+   * Models offered as `model:<name>` labels, in addition to any model named in
+   * the routing rules above. Defaults to the Claude Code CLI aliases.
+   */
+  modelLabels: z
+    .array(z.string().regex(/^[\w.-]+$/, "expected a model alias or ID"))
+    .default(["opus", "sonnet", "haiku"]),
 });
 
 export const configSchema = z

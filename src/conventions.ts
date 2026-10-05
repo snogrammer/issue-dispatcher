@@ -27,6 +27,31 @@ export function stateFromLabels(
   return STATE_PRECEDENCE.find((state) => names.has(stateLabel(prefix, state)));
 }
 
+/** Follow-up issues the dispatcher files for the human reviewer. */
+export function questionLabel(prefix: string): string {
+  return `${prefix}:question`;
+}
+
+/**
+ * Routing and priority labels are unprefixed so they read naturally on an
+ * issue (`model:opus`, `effort:high`, `priority:high`).
+ */
+export function modelLabel(model: string): string {
+  return `model:${model}`;
+}
+
+export function effortLabel(effort: string): string {
+  return `effort:${effort}`;
+}
+
+/** Issues without a priority label sit between these two. */
+export const PRIORITIES = ["high", "low"] as const;
+export type Priority = (typeof PRIORITIES)[number];
+
+export function priorityLabel(priority: Priority): string {
+  return `priority:${priority}`;
+}
+
 /** `claude/42-fix-login-redirect`: issue number first so it can be parsed back. */
 export function branchName(prefix: string, issue: number, title: string): string {
   const slug = title
