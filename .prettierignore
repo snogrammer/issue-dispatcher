@@ -1,0 +1,5 @@
+dist/
+coverage/
+data/
+workspaces/
+pnpm-lock.yaml
