@@ -10,34 +10,47 @@ the YAML file is an error. Empty variables count as unset.
 
 ## Environment variables
 
-| Variable                   | Config key                 | Default             | Notes                                                                                       |
-| -------------------------- | -------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
-| `GITEA_URL`                | `gitea.url`                | required            | `http(s)://` base URL of the Gitea instance; trailing slash removed                         |
-| `GITEA_TOKEN`              | `gitea.token`              | required            | Token owned by the bot account. Secret: env only                                            |
-| `BOT_USERNAME`             | `gitea.botUsername`        | required            | Issues assigned to this user are picked up                                                  |
-| `HUMAN_REVIEWER`           | `humanReviewer`            | required            | Assignee for follow-up and question issues                                                  |
-| `REPOS`                    | `repos`                    | `[]`                | Comma-separated `owner/repo` list                                                           |
-| `ORGS`                     | `orgs`                     | `[]`                | Comma-separated orgs whose repos are discovered. At least one of `REPOS`/`ORGS` is required |
-| `CONFIG_FILE`              | —                          | unset               | Path to an optional YAML config file                                                        |
-| `LABEL_PREFIX`             | `labelPrefix`              | `claude`            | Prefix for state labels (`claude:working`, …)                                               |
-| `POLL_INTERVAL_S`          | `pollIntervalS`            | `60`                | Seconds between reconcile passes (min 10)                                                   |
-| `MAX_CONCURRENT_SESSIONS`  | `maxConcurrentSessions`    | `1`                 | Claude sessions running at once, across all repos                                           |
-| `MAX_FIX_ATTEMPTS`         | `maxFixAttempts`           | `3`                 | CI/review fix rounds before asking the human                                                |
-| `REQUIRE_CI`               | `requireCi`                | `true`              | Never auto-merge a PR that reports no CI status. Accepts `true/false/1/0/yes/no/on/off`     |
-| `CI_MAX_QUEUE`             | `ciMaxQueue`               | `2`                 | Defer pushes while queued + running Actions runs exceed this                                |
-| `CI_NO_STATUS_TIMEOUT_MIN` | `ciNoStatusTimeoutMin`     | `15`                | Minutes without any CI status before filing a question issue                                |
-| `CLAUDE_BIN`               | `claude.bin`               | `claude`            | Claude Code executable                                                                      |
-| `CLAUDE_TIMEOUT_MIN`       | `claude.timeoutMin`        | `60`                | Wall-clock limit per Claude run                                                             |
-| `CLAUDE_MODEL`             | `routing.default.model`    | CLI default         | Global default model (alias or full ID)                                                     |
-| `CLAUDE_EFFORT`            | `routing.default.effort`   | CLI default         | One of `low`, `medium`, `high`, `xhigh`, `max`                                              |
-| `CLAUDE_MAX_TURNS`         | `routing.default.maxTurns` | `100`               | Global default turn limit per run                                                           |
-| `MODEL_LABELS`             | `routing.modelLabels`      | `opus,sonnet,haiku` | Models offered as `model:<name>` issue labels, plus any model named in routing rules        |
-| `WORKSPACE_DIR`            | `paths.workspaceDir`       | `./workspaces`      | Repo checkouts; resolved to an absolute path                                                |
-| `DATA_DIR`                 | `paths.dataDir`            | `./data`            | SQLite state; resolved to an absolute path                                                  |
-| `LOG_LEVEL`                | `logLevel`                 | `info`              | `trace`, `debug`, `info`, `warn`, `error`, `fatal`                                          |
+| Variable                   | Config key                 | Default                      | Notes                                                                                                                      |
+| -------------------------- | -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `GITEA_URL`                | `gitea.url`                | required                     | `http(s)://` base URL of the Gitea instance; trailing slash removed                                                        |
+| `GITEA_TOKEN`              | `gitea.token`              | required                     | Token owned by the bot account. Secret: env only                                                                           |
+| `BOT_USERNAME`             | `gitea.botUsername`        | required                     | Issues assigned to this user are picked up                                                                                 |
+| `HUMAN_REVIEWER`           | `humanReviewer`            | required                     | Assignee for follow-up and question issues                                                                                 |
+| `REPOS`                    | `repos`                    | `[]`                         | Comma-separated `owner/repo` list                                                                                          |
+| `ORGS`                     | `orgs`                     | `[]`                         | Comma-separated orgs whose repos are discovered. At least one of `REPOS`/`ORGS` is required                                |
+| `CONFIG_FILE`              | —                          | unset                        | Path to an optional YAML config file                                                                                       |
+| `LABEL_PREFIX`             | `labelPrefix`              | `claude`                     | Prefix for state labels (`claude:working`, …)                                                                              |
+| `POLL_INTERVAL_S`          | `pollIntervalS`            | `60`                         | Seconds between reconcile passes (min 10)                                                                                  |
+| `MAX_CONCURRENT_SESSIONS`  | `maxConcurrentSessions`    | `1`                          | Claude sessions running at once, across all repos                                                                          |
+| `MAX_FIX_ATTEMPTS`         | `maxFixAttempts`           | `3`                          | CI/review fix rounds before asking the human                                                                               |
+| `REQUIRE_CI`               | `requireCi`                | `true`                       | Never auto-merge a PR that reports no CI status. Accepts `true/false/1/0/yes/no/on/off`                                    |
+| `CI_MAX_QUEUE`             | `ciMaxQueue`               | `2`                          | Defer pushes while queued + running Actions runs exceed this                                                               |
+| `CI_NO_STATUS_TIMEOUT_MIN` | `ciNoStatusTimeoutMin`     | `15`                         | Minutes without any CI status before filing a question issue                                                               |
+| `CLAUDE_BIN`               | `claude.bin`               | `claude`                     | Claude Code executable                                                                                                     |
+| `CLAUDE_TIMEOUT_MIN`       | `claude.timeoutMin`        | `60`                         | Wall-clock limit per Claude run                                                                                            |
+| `CLAUDE_PERMISSION_MODE`   | `claude.permissionMode`    | `bypassPermissions`          | `bypassPermissions`, `acceptEdits`, `auto` or `dontAsk`. The default relies on the container being the sandbox (see below) |
+| `CLAUDE_MAX_BUDGET_USD`    | `claude.maxBudgetUsd`      | unset                        | Per-run spending cap passed to `--max-budget-usd` (API-key billing)                                                        |
+| `GIT_USER_NAME`            | `git.userName`             | `BOT_USERNAME`               | Commit author name in workspaces                                                                                           |
+| `GIT_USER_EMAIL`           | `git.userEmail`            | `<bot>@noreply.<gitea host>` | Commit author email in workspaces                                                                                          |
+| `CLAUDE_MODEL`             | `routing.default.model`    | CLI default                  | Global default model (alias or full ID)                                                                                    |
+| `CLAUDE_EFFORT`            | `routing.default.effort`   | CLI default                  | One of `low`, `medium`, `high`, `xhigh`, `max`                                                                             |
+| `CLAUDE_MAX_TURNS`         | `routing.default.maxTurns` | `100`                        | Global default turn limit per run                                                                                          |
+| `MODEL_LABELS`             | `routing.modelLabels`      | `opus,sonnet,haiku`          | Models offered as `model:<name>` issue labels, plus any model named in routing rules                                       |
+| `WORKSPACE_DIR`            | `paths.workspaceDir`       | `./workspaces`               | Repo checkouts; resolved to an absolute path                                                                               |
+| `DATA_DIR`                 | `paths.dataDir`            | `./data`                     | SQLite state; resolved to an absolute path                                                                                 |
+| `LOG_LEVEL`                | `logLevel`                 | `info`                       | `trace`, `debug`, `info`, `warn`, `error`, `fatal`                                                                         |
 
 Claude Code authentication (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) is
 not part of the dispatcher's config; it is inherited by the `claude` process.
+Dispatcher secrets (`GITEA_TOKEN`) are removed from that process's environment,
+and the workspace holds no Git credentials while Claude runs: the dispatcher
+fetches before and pushes after each run.
+
+`CLAUDE_PERMISSION_MODE=bypassPermissions` lets Claude run commands (tests,
+builds, git) without approval. That is only reasonable because the dispatcher
+is meant to run in an isolated container with no Docker socket and no
+credentials beyond Claude's own. Use `acceptEdits` or `dontAsk` with an
+allow-list in the repo's `.claude/settings.json` if that doesn't hold.
 
 ## YAML file
 

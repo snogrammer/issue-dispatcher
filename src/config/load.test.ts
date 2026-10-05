@@ -50,7 +50,8 @@ describe("loadConfig from env", () => {
       requireCi: true,
       ciMaxQueue: 2,
       ciNoStatusTimeoutMin: 15,
-      claude: { bin: "claude", timeoutMin: 60 },
+      claude: { bin: "claude", timeoutMin: 60, permissionMode: "bypassPermissions" },
+      git: { userName: "bot", userEmail: "bot@noreply.gitea.example.com" },
       routing: {
         default: { maxTurns: 100 },
         phases: {},
@@ -78,6 +79,30 @@ describe("loadConfig from env", () => {
     expect(config.pollIntervalS).toBe(30);
     expect(config.requireCi).toBe(false);
     expect(config.routing.default).toEqual({ model: "opus", effort: "high", maxTurns: 100 });
+  });
+
+  it("parses Claude run limits and git identity", () => {
+    const config = load({
+      ...REQUIRED_ENV,
+      CLAUDE_PERMISSION_MODE: "acceptEdits",
+      CLAUDE_MAX_BUDGET_USD: "2.50",
+      GIT_USER_NAME: "Claude Bot",
+      GIT_USER_EMAIL: "claude@example.com",
+    });
+    expect(config.claude).toMatchObject({ permissionMode: "acceptEdits", maxBudgetUsd: 2.5 });
+    expect(config.git).toEqual({ userName: "Claude Bot", userEmail: "claude@example.com" });
+  });
+
+  it("rejects interactive permission modes and bad budgets", () => {
+    const message = loadError({
+      ...REQUIRED_ENV,
+      CLAUDE_PERMISSION_MODE: "plan",
+      CLAUDE_MAX_BUDGET_USD: "lots",
+      GIT_USER_EMAIL: "not-an-email",
+    });
+    expect(message).toContain("claude.permissionMode (CLAUDE_PERMISSION_MODE)");
+    expect(message).toContain("claude.maxBudgetUsd (CLAUDE_MAX_BUDGET_USD)");
+    expect(message).toContain("git.userEmail (GIT_USER_EMAIL)");
   });
 
   it("treats empty variables as unset", () => {
@@ -150,7 +175,11 @@ routing:
     );
     expect(config.pollIntervalS).toBe(90);
     expect(config.labelPrefix).toBe("bot");
-    expect(config.claude).toEqual({ bin: "claude", timeoutMin: 30 });
+    expect(config.claude).toEqual({
+      bin: "claude",
+      timeoutMin: 30,
+      permissionMode: "bypassPermissions",
+    });
     expect(config.routing).toEqual({
       default: { model: "opus", maxTurns: 50 },
       phases: { implement: { model: "opus", effort: "high" }, rebase: { model: "haiku" } },
