@@ -61,8 +61,9 @@ function setup() {
 /** What Claude does during a run: edit and commit locally. */
 function commitFile(dir: string, file: string, content: string, message = `add ${file}`) {
   writeFileSync(path.join(dir, file), content);
-  execFileSync("git", ["add", file], { cwd: dir });
-  execFileSync("git", ["commit", "--quiet", "-m", message], { cwd: dir });
+  git(dir, "add", file);
+  // The helper's env supplies an identity; CI runners have no global one.
+  git(dir, "commit", "--quiet", "-m", message);
 }
 
 describe("Workspace", () => {

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -53,6 +54,34 @@ function setup(scenario: string, overrides: Partial<RunnerOptions> = {}) {
       env: Record<string, string | null>;
     };
   return { dir, options, request, recorded };
+}
+
+/**
+ * True if `pid` is running. A killed process whose parent already exited can
+ * linger as a zombie until something reaps it (in containers without an init,
+ * nothing does), so zombies count as dead.
+ */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    const state = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+    return state.trim() !== "" && !state.trim().startsWith("Z");
+  } catch {
+    return false;
+  }
+}
+
+async function eventually(check: () => boolean, timeoutMs = 3000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return check();
 }
 
 function argAfter(args: string[], flag: string): string | undefined {
@@ -147,8 +176,7 @@ describe("runClaude", () => {
     expect(result.kind).toBe("timeout");
 
     const grandchild = Number(readFileSync(path.join(dir, "grandchild.pid"), "utf8"));
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(() => process.kill(grandchild, 0)).toThrow();
+    expect(await eventually(() => !isAlive(grandchild))).toBe(true);
   });
 
   it("stops when aborted", async () => {
