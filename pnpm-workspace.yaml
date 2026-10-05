@@ -1,0 +1,3 @@
+allowBuilds:
+  # tsx and vitest (via vite) use esbuild; its install script fetches the platform binary.
+  esbuild: true
