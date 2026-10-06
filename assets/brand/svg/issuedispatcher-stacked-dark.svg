@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="720" viewBox="0 0 900 720" role="img" aria-label="IssueDispatcher">
+<g transform="translate(170 10) scale(1.1)">
+<defs>
+  <linearGradient id="flow" gradientUnits="userSpaceOnUse" x1="30" y1="0" x2="264" y2="0">
+    <stop offset="0" stop-color="#13BFE8"/>
+    <stop offset=".55" stop-color="#2678FF"/>
+    <stop offset="1" stop-color="#6A2BFF"/>
+  </linearGradient>
+</defs>
+<!-- motion lines -->
+<path d="M58 175h164M30 246h132M74 317h190" stroke="url(#flow)" stroke-width="22" stroke-linecap="round"/>
+<!-- hex badge -->
+<path d="M274 52 427 140v176l-153 88-153-88V140Z" fill="#0B1726"/>
+<path d="M274 88 395 158v140l-121 70-121-70V158Z" fill="none" stroke="#FFFFFF" stroke-width="16"/>
+<!-- terminal prompt -->
+<path d="M223 190l45 40-45 40" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M290 273h54" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round"/>
+<!-- git branch badge -->
+<rect x="378" y="72" width="126" height="126" rx="24" fill="#45A52F"/>
+<g fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round">
+  <path d="M418 110v52"/>
+  <path d="M464 112c0 26-46 20-46 46"/>
+</g>
+<g fill="#45A52F" stroke="#FFFFFF" stroke-width="9">
+  <circle cx="418" cy="104" r="11"/>
+  <circle cx="418" cy="168" r="11"/>
+  <circle cx="464" cy="104" r="11"/>
+</g>
+</g><text x="450" y="580" text-anchor="middle" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="-1.8" fill="#0B1726">Issue<tspan fill="#2678FF">Dispatcher</tspan></text><text x="450" y="645" text-anchor="middle" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="24" font-weight="600" letter-spacing="5" fill="#708096">GITEA  +  CLAUDE CODE  +  AUTOMATION</text>
+</svg>

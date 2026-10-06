@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# claude-dispatcher: Node, git, the Claude Code CLI and the dispatcher itself.
+# IssueDispatcher (claude-dispatcher): Node, git, the Claude Code CLI and the dispatcher itself.
 # The container is the sandbox Claude works in (CLAUDE_PERMISSION_MODE defaults
 # to bypassPermissions), so it runs as a non-root user, holds no credentials
 # beyond Claude's own and the bot's Gitea token, and never gets the Docker
@@ -61,7 +61,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 
 # Set by the publish workflow; declared last so it doesn't bust the layer cache.
 ARG GIT_SHA=unknown
-LABEL org.opencontainers.image.revision=$GIT_SHA
+LABEL org.opencontainers.image.title=IssueDispatcher \
+      org.opencontainers.image.revision=$GIT_SHA
 
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "dist/main.js"]

@@ -479,7 +479,7 @@ function pullBody(context: WorkContext, report: Report, index: number): string {
     branch?.body ?? "",
     decisions.length > 0 ? `## Decisions\n\n${decisions.join("\n")}` : "",
     link,
-    "---\nOpened by claude-dispatcher. Merges automatically when CI passes.",
+    "---\nOpened by IssueDispatcher. Merges automatically when CI passes.",
   ]
     .filter((part) => part.trim() !== "")
     .join("\n\n");
