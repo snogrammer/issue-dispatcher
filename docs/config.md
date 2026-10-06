@@ -76,8 +76,31 @@ routing:
   modelLabels: [opus, sonnet, haiku] # offered as model:<name> labels (MODEL_LABELS)
 ```
 
-Each route entry accepts `model`, `effort` and `maxTurns`, all optional. How the
-layers combine with issue labels at run time is described with the routing
-feature.
+Each route entry accepts `model`, `effort` and `maxTurns`, all optional.
+
+### How a run's model, effort and turn limit are chosen
+
+Each layer overrides the ones before it, field by field:
+
+1. `routing.default` (and `CLAUDE_MODEL` / `CLAUDE_EFFORT` / `CLAUDE_MAX_TURNS`)
+2. `routing.phases.<phase>`: `implement`, `fix-ci`, `address-review` or `rebase`
+3. `routing.repos.<owner/repo>`
+4. Issue labels: `model:<name>` and `effort:<level>`
+
+With the example above:
+
+| Run                                      | Model    | Effort      | Why                                                        |
+| ---------------------------------------- | -------- | ----------- | ---------------------------------------------------------- |
+| CI fix in another repo                   | `sonnet` | CLI default | global default; no phase rule for `fix-ci`                 |
+| Rebase in another repo                   | `haiku`  | `low`       | phase rule                                                 |
+| CI fix in `example-org/critical-service` | `opus`   | `max`       | repo rule                                                  |
+| Same, issue labeled `model:haiku`        | `haiku`  | `max`       | label overrides the model; effort still from the repo rule |
+
+A `model:` label only applies if the model is configured (in `MODEL_LABELS`
+or named somewhere in `routing`), and an `effort:` label only with a level the
+CLI accepts. Unknown values, or two different labels of the same kind, are
+ignored and logged as a warning, so the run falls back to the layers below.
+Anything left unset uses the Claude Code CLI's own default. The chosen model,
+effort and turn limit are recorded with each run.
 
 The labels these settings produce are listed in [labels.md](labels.md).

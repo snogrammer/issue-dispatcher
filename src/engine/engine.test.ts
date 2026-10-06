@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { A, B, cycle, FakeWorkspace, report, setup } from "../../test/helpers/engine-fakes.js";
 import type { ClaudeRunResult, RunRequest } from "../claude/runner.js";
+import { createLogger } from "../log.js";
 import { Engine } from "./engine.js";
 import { prLifecycle } from "./pr-lifecycle.js";
 
@@ -288,6 +289,39 @@ describe("usage limits", () => {
     await cycle(engine);
     expect(runner.requests.at(-1)).toMatchObject({ phase: "fix-ci", resumeSessionId: "session-1" });
     expect(store.getWork(A, 1)?.fixAttempts).toBe(1);
+  });
+});
+
+describe("routing", () => {
+  it("runs with the model and effort from the issue's labels", async () => {
+    const { gitea, engine, runner, store } = setup();
+    gitea.addIssue(A, { number: 1, labels: ["model:opus", "effort:high"] });
+    await cycle(engine);
+    expect(runner.requests[0]?.route).toEqual({ model: "opus", effort: "high", maxTurns: 100 });
+    expect(store.recentRuns()[0]).toMatchObject({ model: "opus", effort: "high", maxTurns: 100 });
+  });
+
+  it("ignores unknown routing labels with a warning", async () => {
+    const lines: string[] = [];
+    const { gitea, store, runner, config } = setup();
+    const engine = new Engine({
+      config,
+      gitea,
+      store,
+      workspace: () => new FakeWorkspace(),
+      runClaude: runner.run,
+      log: createLogger("warn", (line) => lines.push(line)),
+    });
+    gitea.addIssue(A, { number: 1, labels: ["model:gpt-9"] });
+    await cycle(engine);
+    expect(runner.requests[0]?.route).toEqual({ maxTurns: 100 });
+    expect(lines.map((line) => JSON.parse(line) as Record<string, unknown>)).toContainEqual(
+      expect.objectContaining({
+        msg: "ignoring routing label",
+        label: "model:gpt-9 (not a configured model; add it to MODEL_LABELS)",
+        issue: 1,
+      }),
+    );
   });
 });
 

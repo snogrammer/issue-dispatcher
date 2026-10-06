@@ -16,7 +16,7 @@ import { isNotFound } from "../gitea/http.js";
 import type { Issue, Label } from "../gitea/types.js";
 import { dispatcherLabels, ensureLabels } from "../labels.js";
 import { silentLogger, type Logger } from "../log.js";
-import { routeFor } from "../routing.js";
+import { resolveRoute } from "../routing.js";
 import { rebuildFromGitea } from "../state/rebuild.js";
 import type { RunExit, StateStore } from "../state/store.js";
 import {
@@ -412,8 +412,14 @@ export class Engine {
     const workspace = this.deps.workspace(repo);
     const branch =
       context.work.branch ?? branchName(this.config.labelPrefix, issue.number, issue.title);
-    const route = routeFor(this.config.routing, phase, name);
     const log = this.log.child({ repo: name, issue: issue.number, phase });
+    const { route, ignored } = resolveRoute(
+      this.config.routing,
+      phase,
+      name,
+      labelNames(issue.labels),
+    );
+    for (const label of ignored) log.warn("ignoring routing label", { label });
 
     let result: ClaudeRunResult;
     const runId = this.store.startRun({
