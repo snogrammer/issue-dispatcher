@@ -28,6 +28,27 @@ describe("startup", () => {
   });
 });
 
+describe("snapshot", () => {
+  it("reports runs in progress and when the last poll finished", async () => {
+    const { gitea, engine, runner, clock } = setup();
+    gitea.addIssue(A, { number: 1 });
+    runner.script("hold");
+    expect(engine.snapshot().lastTickAt).toBeNull();
+
+    await engine.tick();
+
+    expect(engine.snapshot()).toMatchObject({
+      lastTickAt: clock.now,
+      ciBusy: false,
+      repos: [A, B],
+      running: [{ repo: A, issue: 1, phase: "implement", startedAt: clock.now }],
+    });
+    runner.release();
+    await engine.idle();
+    expect(engine.snapshot().running).toEqual([]);
+  });
+});
+
 describe("picking up issues", () => {
   it("takes high priority first, then oldest, skipping blocked and question issues", async () => {
     const { gitea, engine, store, runner } = setup();
@@ -310,7 +331,7 @@ describe("routing", () => {
       store,
       workspace: () => new FakeWorkspace(),
       runClaude: runner.run,
-      log: createLogger("warn", (line) => lines.push(line)),
+      log: createLogger("warn", { write: (line) => lines.push(line) }),
     });
     gitea.addIssue(A, { number: 1, labels: ["model:gpt-9"] });
     await cycle(engine);

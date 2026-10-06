@@ -252,6 +252,31 @@ describe("run log", () => {
     expect(store.recentRuns(1)).toHaveLength(1);
   });
 
+  it("sums cost and tokens per repo, optionally since a time", () => {
+    const { now, advance } = clock();
+    const store = StateStore.inMemory({ now });
+    const first = store.startRun({ repo: "org/b", issue: 1, phase: "implement" });
+    store.finishRun(first, { exit: "success", costUsd: 1.5, inputTokens: 100, outputTokens: 10 });
+    advance(3_600_000);
+    const second = store.startRun({ repo: "org/a", issue: 2, phase: "implement" });
+    store.finishRun(second, { exit: "success", costUsd: 0.25, inputTokens: 50, outputTokens: 5 });
+    store.startRun({ repo: "org/a", issue: 2, phase: "fix-ci" }); // still running, no cost yet
+
+    expect(store.costSummary()).toEqual({
+      runs: 3,
+      costUsd: 1.75,
+      inputTokens: 150,
+      outputTokens: 15,
+      byRepo: [
+        { repo: "org/a", runs: 2, costUsd: 0.25, inputTokens: 50, outputTokens: 5 },
+        { repo: "org/b", runs: 1, costUsd: 1.5, inputTokens: 100, outputTokens: 10 },
+      ],
+    });
+    expect(
+      store.costSummary(new Date("2026-01-01T00:30:00.000Z")).byRepo.map((r) => r.repo),
+    ).toEqual(["org/a"]);
+  });
+
   it("rejects finishing an unknown run", () => {
     expect(() => {
       StateStore.inMemory().finishRun(99, { exit: "error" });

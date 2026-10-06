@@ -43,6 +43,8 @@ the YAML file is an error. Empty variables count as unset.
 | `WORKSPACE_DIR`               | `paths.workspaceDir`        | `./workspaces`               | Repo checkouts; resolved to an absolute path                                                                               |
 | `DATA_DIR`                    | `paths.dataDir`             | `./data`                     | SQLite state; resolved to an absolute path                                                                                 |
 | `LOG_LEVEL`                   | `logLevel`                  | `info`                       | `trace`, `debug`, `info`, `warn`, `error`, `fatal`                                                                         |
+| `STATUS_PORT`                 | `status.port`               | `8080`                       | Port for `/healthz` and `/status`; `0` turns the server off                                                                |
+| `STATUS_HOST`                 | `status.host`               | `127.0.0.1`                  | Address to bind; use `0.0.0.0` to reach `/status` from outside the container                                               |
 
 Claude Code authentication (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) is
 not part of the dispatcher's config; it is inherited by the `claude` process.
