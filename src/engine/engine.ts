@@ -27,6 +27,7 @@ import {
   type WorkContext,
   type WorkspaceLike,
 } from "./lifecycle.js";
+import { Governor, type Observation } from "./governor.js";
 import { KeyedLock } from "./lock.js";
 import { orderCandidates } from "./pickup.js";
 import { QuestionDesk } from "./questions.js";
@@ -92,7 +93,6 @@ interface InFlight {
 }
 
 const REPO_REFRESH_MS = 5 * 60_000;
-const DEFAULT_PAUSE_MS = 30 * 60_000;
 
 export class Engine {
   private readonly config: Config;
@@ -100,6 +100,7 @@ export class Engine {
   private readonly store: StateStore;
   private readonly lifecycle: Lifecycle;
   private readonly questions: QuestionDesk;
+  private readonly governor: Governor;
   private readonly log: Logger;
   private readonly now: () => Date;
   private readonly newSessionId: () => string;
@@ -121,6 +122,7 @@ export class Engine {
     this.now = deps.now ?? (() => new Date());
     this.newSessionId = deps.newSessionId ?? randomUUID;
     this.questions = new QuestionDesk(deps.config, deps.gitea, this.log);
+    this.governor = new Governor(deps.store, deps.config.rateLimit, this.now, this.log);
   }
 
   /** Number of Claude runs in progress. */
@@ -228,7 +230,7 @@ export class Engine {
       await this.reconcileActive(repo, held);
       return;
     }
-    if (!this.hasCapacity()) return;
+    if (!this.hasCapacity() || this.governor.pickupsPaused()) return;
     const next = await this.pickNext(repo);
     if (next) await this.begin(repo, next);
   }
@@ -328,17 +330,10 @@ export class Engine {
 
   private hasCapacity(): boolean {
     return (
-      !this.stopping && !this.isPaused() && this.inFlight.size < this.config.maxConcurrentSessions
+      !this.stopping &&
+      !this.governor.isPaused() &&
+      this.inFlight.size < this.config.maxConcurrentSessions
     );
-  }
-
-  private isPaused(): boolean {
-    const { pausedUntil } = this.store.getGovernor();
-    if (pausedUntil === null) return false;
-    if (pausedUntil.getTime() > this.now().getTime()) return true;
-    this.store.setGovernor({ pausedUntil: null });
-    this.log.info("rate-limit pause over; resuming");
-    return false;
   }
 
   private startRun(context: WorkContext, phase: Phase, details: RunDetails = {}): boolean {
@@ -440,13 +435,14 @@ export class Engine {
       outputTokens: result.outputTokens,
       error: result.error,
     });
+    const limit = this.governor.observe(result);
     log.info("run finished", { kind: result.kind, costUsd: result.costUsd, error: result.error });
 
     await this.lock.run(name, async () => {
       if (run.cancelled || this.stopping) return;
       const work = this.store.getWork(name, issue.number);
       if (work === undefined || this.store.activeIssue(name) !== issue.number) return;
-      await this.handleResult({ repo, issue, work }, phase, result, workspace);
+      await this.handleResult({ repo, issue, work }, phase, result, workspace, limit);
     });
   }
 
@@ -455,6 +451,7 @@ export class Engine {
     phase: Phase,
     result: ClaudeRunResult,
     workspace: WorkspaceLike,
+    limit: Observation,
   ): Promise<void> {
     const name = context.repo.fullName;
     switch (result.kind) {
@@ -464,14 +461,21 @@ export class Engine {
       case "aborted":
         return;
       case "rate_limited": {
-        const resetsAt = result.rateLimit?.resetsAt;
-        const until =
-          resetsAt && resetsAt.getTime() > this.now().getTime()
-            ? resetsAt
-            : new Date(this.now().getTime() + DEFAULT_PAUSE_MS);
-        this.store.setGovernor({ pausedUntil: until });
-        this.log.warn("rate limited; pausing all new runs", { until: until.toISOString() });
-        return; // State and session are kept; the run resumes after the pause.
+        // State and session are kept; the run resumes once the governor allows.
+        if (phase === "fix-ci" || phase === "address-review") {
+          // A round cut off by the limit doesn't count against MAX_FIX_ATTEMPTS.
+          this.store.updateWork(name, context.issue.number, {
+            fixAttempts: Math.max(0, context.work.fixAttempts - 1),
+          });
+        }
+        if (limit.pauseStarted && limit.pausedUntil) {
+          await this.gitea.createComment(
+            context.repo.ref,
+            context.issue.number,
+            `Paused: Claude's usage limit was reached. Work continues after ${limit.pausedUntil.toISOString()}.`,
+          );
+        }
+        return;
       }
       case "session_not_found":
         // The session never got created (or was lost); start a fresh one next poll.

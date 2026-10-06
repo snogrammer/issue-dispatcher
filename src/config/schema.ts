@@ -83,6 +83,19 @@ export const configSchema = z
       .optional(),
     ciMaxQueue: z.int().min(1).default(2),
     ciNoStatusTimeoutMin: z.int().min(1).default(15),
+    rateLimit: z
+      .strictObject({
+        /** Pause after a rate limit with no reset time: base · 2^n minutes, capped at max. */
+        backoffBaseMin: z.int().min(1).default(15),
+        backoffMaxMin: z.int().min(1).default(300),
+        /** Stop picking up new issues once a usage window is this full (0–1]. */
+        pickupThreshold: z.number().gt(0).max(1).default(0.9),
+      })
+      .refine((limits) => limits.backoffMaxMin >= limits.backoffBaseMin, {
+        message: "RATE_LIMIT_BACKOFF_MAX_MIN must be at least RATE_LIMIT_BACKOFF_BASE_MIN",
+        path: ["backoffMaxMin"],
+      })
+      .prefault({}),
     claude: z
       .strictObject({
         bin: z.string().min(1).default("claude"),

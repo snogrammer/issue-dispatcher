@@ -171,18 +171,27 @@ describe("updateWork", () => {
 
 describe("governor", () => {
   it("defaults to not paused", () => {
-    expect(StateStore.inMemory().getGovernor()).toEqual({ pausedUntil: null, backoffLevel: 0 });
+    expect(StateStore.inMemory().getGovernor()).toEqual({
+      pausedUntil: null,
+      pickupPausedUntil: null,
+      backoffLevel: 0,
+    });
   });
 
-  it("stores and clears the pause", () => {
+  it("stores and clears the pauses", () => {
     const store = StateStore.inMemory();
     const until = new Date("2026-01-01T05:00:00.000Z");
-    expect(store.setGovernor({ pausedUntil: until, backoffLevel: 2 })).toEqual({
+    const pickup = new Date("2026-01-01T06:00:00.000Z");
+    expect(
+      store.setGovernor({ pausedUntil: until, pickupPausedUntil: pickup, backoffLevel: 2 }),
+    ).toEqual({
       pausedUntil: until,
+      pickupPausedUntil: pickup,
       backoffLevel: 2,
     });
     expect(store.setGovernor({ pausedUntil: null })).toEqual({
       pausedUntil: null,
+      pickupPausedUntil: pickup,
       backoffLevel: 2,
     });
   });

@@ -46,8 +46,10 @@ export interface WorkPatch {
 }
 
 export interface Governor {
-  /** No new work starts before this time (rate limit). */
+  /** No run of any kind starts before this time (the usage limit was hit). */
   pausedUntil: Date | null;
+  /** No new issue is picked up before this time (close to the limit). */
+  pickupPausedUntil: Date | null;
   /** Consecutive rate limits without a known reset time; drives backoff. */
   backoffLevel: number;
 }
@@ -271,21 +273,28 @@ export class StateStore {
       value: string;
     }[];
     const values = new Map(rows.map((row) => [row.key, row.value]));
-    const paused = values.get("paused_until");
+    const date = (key: string) => {
+      const value = values.get(key);
+      return value === undefined ? null : new Date(value);
+    };
     return {
-      pausedUntil: paused === undefined ? null : new Date(paused),
+      pausedUntil: date("paused_until"),
+      pickupPausedUntil: date("pickup_paused_until"),
       backoffLevel: Number(values.get("backoff_level") ?? 0),
     };
   }
 
   setGovernor(patch: Partial<Governor>): Governor {
     this.db.transaction(() => {
-      if (patch.pausedUntil !== undefined) {
-        if (patch.pausedUntil === null) {
-          this.db.prepare("DELETE FROM governor WHERE key = 'paused_until'").run();
-        } else {
-          this.setGovernorValue("paused_until", patch.pausedUntil.toISOString());
-        }
+      const dates: [keyof Governor, string][] = [
+        ["pausedUntil", "paused_until"],
+        ["pickupPausedUntil", "pickup_paused_until"],
+      ];
+      for (const [field, key] of dates) {
+        const value = patch[field];
+        if (value === undefined) continue;
+        if (value === null) this.db.prepare("DELETE FROM governor WHERE key = ?").run(key);
+        else if (value instanceof Date) this.setGovernorValue(key, value.toISOString());
       }
       if (patch.backoffLevel !== undefined) {
         this.setGovernorValue("backoff_level", String(patch.backoffLevel));

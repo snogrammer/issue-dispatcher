@@ -105,6 +105,22 @@ describe("loadConfig from env", () => {
     expect(message).toContain("git.userEmail (GIT_USER_EMAIL)");
   });
 
+  it("validates rate-limit settings", () => {
+    expect(load(REQUIRED_ENV).rateLimit).toEqual({
+      backoffBaseMin: 15,
+      backoffMaxMin: 300,
+      pickupThreshold: 0.9,
+    });
+    const message = loadError({
+      ...REQUIRED_ENV,
+      RATE_LIMIT_BACKOFF_BASE_MIN: "60",
+      RATE_LIMIT_BACKOFF_MAX_MIN: "30",
+      RATE_LIMIT_PICKUP_THRESHOLD: "1.5",
+    });
+    expect(message).toContain("RATE_LIMIT_BACKOFF_MAX_MIN must be at least");
+    expect(message).toContain("rateLimit.pickupThreshold (RATE_LIMIT_PICKUP_THRESHOLD)");
+  });
+
   it("treats empty variables as unset", () => {
     const config = load({ ...REQUIRED_ENV, ORGS: "", LABEL_PREFIX: "  " });
     expect(config.orgs).toEqual([]);

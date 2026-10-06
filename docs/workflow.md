@@ -18,6 +18,21 @@ PRs merge without human review, so CI is the safety net. With `REQUIRE_CI`
 (the default) a PR that never reports a CI status is not merged; after
 `CI_NO_STATUS_TIMEOUT_MIN` the issue is blocked for a human.
 
+## Usage limits
+
+Claude's usage limits apply to the whole account, so the dispatcher handles
+them globally:
+
+- **Close to the limit** (the CLI warns, or a usage window is at least
+  `RATE_LIMIT_PICKUP_THRESHOLD` full): no new issues are picked up until that
+  window resets. Issues already in progress keep going.
+- **Limit reached**: no runs at all until the reported reset time. The issue
+  whose run was cut off gets a comment, keeps its state and session, and
+  resumes afterwards; a cut-off fix or review round isn't counted as a round.
+  Without a reset time the pause starts at `RATE_LIMIT_BACKOFF_BASE_MIN`
+  minutes and doubles each time (up to `RATE_LIMIT_BACKOFF_MAX_MIN`) until a
+  run succeeds.
+
 ## Questions
 
 Claude doesn't stop to ask when it can pick a sensible option: it takes the
