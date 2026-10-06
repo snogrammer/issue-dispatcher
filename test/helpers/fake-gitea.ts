@@ -18,6 +18,7 @@ import type {
   RepoRef,
   Repository,
   ReviewComment,
+  RunStatus,
   StatusState,
   User,
   WorkflowJob,
@@ -53,6 +54,8 @@ export class FakeGitea implements EngineGitea {
   readonly merges: { repo: string; pull: number; input: MergePullInput }[] = [];
   /** Make the next merge fail with this HTTP status and message. */
   mergeFailure: { status: number; message: string } | undefined;
+  /** Make countWorkflowRuns fail. */
+  countFailure = false;
   private nextId = 1;
 
   constructor(private readonly botLogin: string) {}
@@ -167,6 +170,32 @@ export class FakeGitea implements EngineGitea {
       ...review,
     });
     this.reviews.set(key, list);
+  }
+
+  /** An Actions run that's queued or running (or done, with a conclusion). */
+  addRun(repo: string, sha: string, status: RunStatus, conclusion: string | null = null): void {
+    const id = this.nextId++;
+    this.runs.push({
+      repo,
+      id,
+      status,
+      conclusion,
+      event: "pull_request",
+      head_branch: null,
+      head_sha: sha,
+      html_url: `https://gitea.example.com/${repo}/actions/runs/${String(id)}`,
+      started_at: null,
+      completed_at: null,
+      jobs: [],
+    });
+  }
+
+  countWorkflowRuns(ref: RepoRef, status: RunStatus): Promise<number> {
+    if (this.countFailure)
+      return Promise.reject(new GiteaError("GET", "/actions/runs", 500, "boom"));
+    return Promise.resolve(
+      this.runs.filter((run) => run.repo === key(ref) && run.status === status).length,
+    );
   }
 
   addFailedRun(repo: string, sha: string, jobName: string, log: string): void {

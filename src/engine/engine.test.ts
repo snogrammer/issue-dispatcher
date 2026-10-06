@@ -291,6 +291,47 @@ describe("usage limits", () => {
   });
 });
 
+describe("CI backpressure", () => {
+  it("doesn't start runs while CI is backed up, and resumes when it drains", async () => {
+    const { gitea, engine, store, runner } = setup({ CI_MAX_QUEUE: "2" });
+    gitea.addRun(B, "other", "in_progress");
+    gitea.addRun(B, "other2", "queued");
+    gitea.addIssue(A, { number: 1 });
+
+    await cycle(engine);
+    expect(store.activeIssue(A)).toBeNull();
+    expect(runner.requests).toEqual([]);
+
+    gitea.runs.forEach((run) => {
+      run.status = "completed";
+    });
+    await cycle(engine);
+    expect(store.activeIssue(A)).toBe(1);
+    expect(runner.requests).toHaveLength(1);
+  });
+
+  it("holds fix rounds too, without counting them", async () => {
+    const { gitea, engine, store, runner } = setup({ CI_MAX_QUEUE: "2" }, (deps) =>
+      prLifecycle(deps),
+    );
+    gitea.addIssue(A, { number: 1 });
+    await cycle(engine); // PR #2
+    gitea.setStatus("sha-1", "failure");
+    gitea.addRun(B, "x", "queued");
+    gitea.addRun(B, "y", "queued");
+
+    await cycle(engine);
+    expect(runner.requests.map((r) => r.phase)).toEqual(["implement"]);
+    expect(store.getWork(A, 1)?.fixAttempts).toBe(0);
+
+    gitea.runs.forEach((run) => {
+      run.status = "completed";
+    });
+    await cycle(engine);
+    expect(runner.requests.map((r) => r.phase)).toEqual(["implement", "fix-ci"]);
+  });
+});
+
 describe("humans steering", () => {
   it("stops when the bot is unassigned: aborts the run, frees the slot, leaves a note", async () => {
     const { gitea, engine, store, runner } = setup();

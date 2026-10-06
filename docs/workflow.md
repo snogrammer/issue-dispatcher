@@ -14,6 +14,11 @@
 4. **Done.** After the last PR merges the issue is closed and the next
    assigned issue is picked up.
 
+CI runners are shared and few, so while `CI_MAX_QUEUE` or more Actions runs
+are queued or running across the watched repos, no new Claude run starts
+(new issues, fix rounds and resumes all wait). CI that is merely queued or
+pending is never treated as failed.
+
 PRs merge without human review, so CI is the safety net. With `REQUIRE_CI`
 (the default) a PR that never reports a CI status is not merged; after
 `CI_NO_STATUS_TIMEOUT_MIN` the issue is blocked for a human.

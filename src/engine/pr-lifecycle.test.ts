@@ -236,6 +236,34 @@ describe("without CI", () => {
     expect(gitea.merges).toEqual([]);
   });
 
+  it("treats a queued run with no commit status yet as pending, not missing CI", async () => {
+    const fixture = withPrs({ CI_NO_STATUS_TIMEOUT_MIN: "15" });
+    const { gitea, engine, store, clock } = fixture;
+    await toReview(fixture);
+    gitea.addRun(A, "sha-1", "queued");
+
+    clock.now = new Date("2026-06-01T03:00:00Z");
+    await cycle(engine);
+    expect(store.getWork(A, 1)?.state).toBe("in-review");
+    expect(gitea.merges).toEqual([]);
+  });
+
+  it("waits on CI that stays pending for hours instead of failing it", async () => {
+    const fixture = withPrs();
+    const { gitea, engine, store, clock, runner } = fixture;
+    await toReview(fixture);
+    gitea.setStatus("sha-1", "pending");
+
+    clock.now = new Date("2026-06-01T08:00:00Z");
+    await cycle(engine);
+    expect(store.getWork(A, 1)?.state).toBe("in-review");
+    expect(runner.requests.map((r) => r.phase)).toEqual(["implement"]);
+
+    gitea.setStatus("sha-1", "success");
+    await cycle(engine);
+    expect(gitea.merges).toHaveLength(1);
+  });
+
   it("merges without CI when REQUIRE_CI is off", async () => {
     const fixture = withPrs({ REQUIRE_CI: "false" });
     await toReview(fixture);
