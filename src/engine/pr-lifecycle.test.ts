@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { A, cycle, report, REVIEWER, setup } from "../../test/helpers/engine-fakes.js";
+import { A, B, cycle, report, REVIEWER, setup } from "../../test/helpers/engine-fakes.js";
 import { logTail, prLifecycle } from "./pr-lifecycle.js";
 
 /** An engine using the PR lifecycle, with issue #1 assigned in org/a. */
@@ -131,15 +131,23 @@ describe("merging on green CI", () => {
     const deleted = gitea.calls.indexOf(`deleteBranch ${A} claude/1-x`);
     expect(retarget).toBeGreaterThan(-1);
     expect(deleted).toBeGreaterThan(retarget);
+    // The next branch is rebased onto main, dropping the merged PR's commits.
+    expect(fixture.workspace(A).rebases).toEqual([["claude/1-x-part-2", "main", "sha-1"]]);
+    const rebased = fixture.workspace(A).heads.get("claude/1-x-part-2");
+    expect(gitea.pull(A, 3).head.sha).toBe(rebased);
     expect(store.getWork(A, 1)).toMatchObject({
       prStack: [3],
-      lastSha: "sha-2",
+      lastSha: rebased,
+      rebaseFrom: null,
       state: "in-review",
     });
     expect(gitea.issue(A, 1).state).toBe("open");
     expect(gitea.commentsOn(A, 1).at(-1)).toContain("Next in the stack: #3, now targeting `main`.");
+    expect(gitea.commentsOn(A, 3).at(-1)).toBe(
+      "Rebased onto `main` now that the PR below it merged.",
+    );
 
-    gitea.setStatus("sha-2", "success");
+    gitea.setStatus(rebased ?? "", "success");
     await cycle(engine);
     expect(gitea.merges[1]).toMatchObject({ pull: 3, input: { deleteBranch: true } });
     expect(store.getWork(A, 1)?.state).toBe("done");
@@ -335,15 +343,152 @@ describe("humans on the PR", () => {
   });
 });
 
-describe("merge problems", () => {
-  it("blocks when the PR has conflicts", async () => {
+describe("stack rebases", () => {
+  function stack() {
     const fixture = withPrs();
+    fixture.runner.script({
+      report: report(1, {
+        branches: [
+          { name: "claude/1-x", title: "Part 1", body: "" },
+          { name: "claude/1-x-part-2", title: "Part 2", body: "" },
+        ],
+      }),
+    });
+    return fixture;
+  }
+
+  it("hands conflicts to a Claude rebase round with the merged base, then clears it", async () => {
+    const fixture = stack();
+    const { gitea, engine, runner, store, workspace } = fixture;
     await toReview(fixture);
-    fixture.gitea.pull(A, 2).mergeable = false;
-    fixture.gitea.setStatus("sha-1", "success");
-    await cycle(fixture.engine);
-    expect(fixture.gitea.commentsOn(A, 1).at(-1)).toContain(
-      "#2 can't be merged automatically (it conflicts with `main`).",
+    workspace(A).rebaseConflicts = true;
+    runner.script({
+      report: report(1, {
+        branches: [{ name: "claude/1-x-part-2", title: "Part 2", body: "" }],
+      }),
+    });
+    gitea.setStatus("sha-1", "success");
+
+    await cycle(engine);
+
+    const round = runner.requests.at(-1);
+    expect(round).toMatchObject({ phase: "rebase", resumeSessionId: "session-1" });
+    expect(round?.prompt).toContain("git rebase --onto origin/main sha-1 claude/1-x-part-2");
+    // The round worked on the next PR's branch, not the merged one.
+    expect(workspace(A).prepared.at(-1)).toEqual(["claude/1-x-part-2", "main"]);
+    expect(store.getWork(A, 1)).toMatchObject({
+      prStack: [3],
+      branch: "claude/1-x-part-2",
+      rebaseFrom: null,
+      fixAttempts: 1,
+    });
+  });
+
+  it("files a question when Claude can't resolve the conflicts", async () => {
+    const fixture = stack();
+    const { gitea, engine, runner, store, workspace } = fixture;
+    await toReview(fixture);
+    workspace(A).rebaseConflicts = true;
+    runner.script({
+      report: report(1, {
+        outcome: "needs_human",
+        branches: [],
+        followups: [
+          {
+            title: "Which version of the login form wins?",
+            body: "main changed the same lines.",
+            blocking: true,
+          },
+        ],
+      }),
+    });
+    gitea.setStatus("sha-1", "success");
+
+    await cycle(engine);
+
+    expect(store.getWork(A, 1)).toMatchObject({ state: "blocked", rebaseFrom: "sha-1" });
+    const question = gitea.filedIssues(A).at(-1);
+    expect(question?.title).toBe("Question from #1: Which version of the login form wins?");
+    expect(gitea.dependencies.get(`${A}#1`)).toEqual([question?.number]);
+  });
+
+  it("waits for a session before a conflicted rebase, keeping it pending", async () => {
+    const fixture = withPrs({ REPOS: `${A},${B}` });
+    const { gitea, engine, runner, store, workspace } = fixture;
+    fixture.runner.script({
+      report: report(1, {
+        branches: [
+          { name: "claude/1-x", title: "Part 1", body: "" },
+          { name: "claude/1-x-part-2", title: "Part 2", body: "" },
+        ],
+      }),
+    });
+    await toReview(fixture);
+    workspace(A).rebaseConflicts = true;
+    gitea.addIssue(B, { number: 9 });
+    runner.script("hold");
+    await engine.tick(); // B takes the only session while A's CI is pending
+
+    gitea.setStatus("sha-1", "success");
+    await engine.tick(); // A merges #2; its rebase conflicts but can't start yet
+    expect(store.getWork(A, 1)).toMatchObject({ rebaseFrom: "sha-1", fixAttempts: 0 });
+
+    runner.release();
+    await engine.idle();
+    await cycle(engine);
+    expect(runner.requests.at(-1)).toMatchObject({ issue: 1, phase: "rebase" });
+  });
+
+  it("clears a pending rebase that already happened", async () => {
+    const fixture = stack();
+    const { gitea, engine, store, workspace } = fixture;
+    await toReview(fixture);
+    workspace(A).rebasedAway.add("sha-1");
+    gitea.setStatus("sha-1", "success");
+    await cycle(engine);
+    expect(workspace(A).rebases).toEqual([]);
+    expect(store.getWork(A, 1)?.rebaseFrom).toBeNull();
+  });
+});
+
+describe("follow-up rounds", () => {
+  it("blocks clearly when a round doesn't report the PR's branch", async () => {
+    const fixture = withPrs();
+    const { gitea, engine, runner, store } = fixture;
+    await toReview(fixture);
+    runner.script({
+      report: report(1, { branches: [{ name: "claude/1-other", title: "T", body: "" }] }),
+    });
+    gitea.setStatus("sha-1", "failure");
+    await cycle(engine);
+    expect(store.getWork(A, 1)?.state).toBe("blocked");
+    expect(gitea.commentsOn(A, 1).at(-1)).toContain(
+      "The fix-ci round on #2 didn't report its branch `claude/1-x`",
+    );
+  });
+});
+
+describe("merge problems", () => {
+  it("sends a conflicted PR to a Claude rebase round, then blocks after the cap", async () => {
+    const fixture = withPrs({ MAX_FIX_ATTEMPTS: "1" });
+    const { gitea, engine, runner, store } = fixture;
+    await toReview(fixture);
+    gitea.pull(A, 2).mergeable = false;
+    gitea.setStatus("sha-1", "success");
+
+    await cycle(engine);
+    const round = runner.requests.at(-1);
+    expect(round).toMatchObject({ phase: "rebase", resumeSessionId: "session-1" });
+    expect(round?.prompt).toContain("claude/1-x conflicts with main. Rebase it onto origin/main");
+    expect(fixture.workspace(A).prepared.at(-1)).toEqual(["claude/1-x", "main"]);
+    expect(store.getWork(A, 1)?.fixAttempts).toBe(1);
+
+    // Still conflicting after the round (sha-2): the cap is reached.
+    gitea.setStatus("sha-2", "success");
+    await cycle(engine);
+    expect(store.getWork(A, 1)?.state).toBe("blocked");
+    expect(gitea.commentsOn(A, 1).at(-1)).toContain(
+      "It still conflicts with `main` on #2 after 1 rounds.",
     );
   });
 

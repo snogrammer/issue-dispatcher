@@ -103,6 +103,11 @@ export class FakeWorkspace implements WorkspaceLike {
   readonly heads = new Map<string, string>();
   failPrepare = false;
   stuck = false;
+  /** Make the next mechanical rebase hit conflicts. */
+  rebaseConflicts = false;
+  /** Commits treated as no longer in the branch history (already rebased away). */
+  readonly rebasedAway = new Set<string>();
+  readonly rebases: [string, string, string][] = [];
   private counter = 0;
 
   constructor(
@@ -131,6 +136,18 @@ export class FakeWorkspace implements WorkspaceLike {
 
   isClean(): Promise<boolean> {
     return Promise.resolve(true);
+  }
+
+  rebaseOnto(branch: string, onto: string, upstream: string): Promise<"rebased" | "conflict"> {
+    this.rebases.push([branch, onto, upstream]);
+    if (this.rebaseConflicts) return Promise.resolve("conflict");
+    this.heads.set(branch, `sha-${String(++this.counter)}`);
+    this.rebasedAway.add(upstream);
+    return Promise.resolve("rebased");
+  }
+
+  isAncestor(commit: string): Promise<boolean> {
+    return Promise.resolve(!this.rebasedAway.has(commit));
   }
 
   commitsAhead(): Promise<number> {

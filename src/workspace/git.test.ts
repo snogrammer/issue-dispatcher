@@ -165,6 +165,51 @@ describe("Workspace", () => {
   });
 });
 
+describe("rebasing a stack", () => {
+  /**
+   * main ← claude/7-x (A) ← claude/7-x-part-2 (B). The bottom PR is then
+   * squash-merged: main gets A' (A's change, new SHA).
+   */
+  async function stacked(conflicting = false) {
+    const fixture = setup();
+    const { seed, workspace } = fixture;
+    await workspace.prepare("claude/7-x", "main");
+    commitFile(workspace.dir, "a.txt", "a\n");
+    const bottomHead = await workspace.head("claude/7-x");
+    git(workspace.dir, "checkout", "--quiet", "-b", "claude/7-x-part-2");
+    commitFile(workspace.dir, "b.txt", "b\n");
+    await workspace.push(7, ["claude/7-x", "claude/7-x-part-2"]);
+
+    git(seed, "pull", "--quiet", "origin", "main");
+    writeFileSync(path.join(seed, "a.txt"), "a\n");
+    if (conflicting) writeFileSync(path.join(seed, "b.txt"), "something else\n");
+    git(seed, "add", ".");
+    git(seed, "commit", "--quiet", "-m", "Squash of claude/7-x");
+    git(seed, "push", "--quiet", "origin", "HEAD:main");
+    return { ...fixture, bottomHead };
+  }
+
+  it("replays only the branch's own commits onto main", async () => {
+    const { workspace, remote, bottomHead } = await stacked();
+    expect(await workspace.isAncestor(bottomHead, "claude/7-x-part-2")).toBe(true);
+
+    expect(await workspace.rebaseOnto("claude/7-x-part-2", "main", bottomHead)).toBe("rebased");
+    await workspace.push(7, ["claude/7-x-part-2"]);
+
+    const log = git(remote, "log", "--format=%s", "claude/7-x-part-2");
+    expect(log.split("\n")).toEqual(["add b.txt", "Squash of claude/7-x", "initial"]);
+    expect(await workspace.isAncestor(bottomHead, "claude/7-x-part-2")).toBe(false);
+  });
+
+  it("aborts on conflicts and leaves the branch untouched", async () => {
+    const { workspace, bottomHead } = await stacked(true);
+    const before = await workspace.head("claude/7-x-part-2");
+    expect(await workspace.rebaseOnto("claude/7-x-part-2", "main", bottomHead)).toBe("conflict");
+    expect(await workspace.head("claude/7-x-part-2")).toBe(before);
+    expect(await workspace.isClean()).toBe(true);
+  });
+});
+
 describe("authEnv", () => {
   it("scopes the header to the Gitea URL and disables credential helpers", () => {
     expect(authEnv("https://gitea.example.com/", "t")).toEqual({

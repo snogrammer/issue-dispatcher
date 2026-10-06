@@ -54,4 +54,9 @@ export const MIGRATIONS: readonly string[] = [
   -- When last_sha last changed: how long a PR head has waited for CI.
   ALTER TABLE issue_work ADD COLUMN head_since TEXT;
   `,
+  `
+  -- Set when the PR below this one in a stack merged and this branch still
+  -- carries that PR's original commits (up to this SHA) and needs a rebase.
+  ALTER TABLE issue_work ADD COLUMN rebase_from TEXT;
+  `,
 ];

@@ -23,13 +23,15 @@ export interface WorkContext {
 
 export type WorkspaceLike = Pick<
   Workspace,
-  "dir" | "prepare" | "push" | "isClean" | "commitsAhead"
+  "dir" | "prepare" | "push" | "isClean" | "commitsAhead" | "rebaseOnto" | "isAncestor"
 >;
 
 export interface RunDetails {
   failures?: CiFailure[];
   reviewNotes?: ReviewNote[];
   onto?: string;
+  /** For a stack rebase: commits up to here are already merged into `onto`. */
+  upstream?: string;
   /** Human answers to Claude's blocking questions. */
   answers?: { question: string; answer: string }[];
 }
@@ -45,6 +47,8 @@ export interface EngineActions {
   block(context: WorkContext, reason: string): Promise<void>;
   /** Release the repo slot and remove state labels. */
   finish(context: WorkContext, outcome: "done" | "abandoned"): Promise<void>;
+  /** The repo's workspace (only touch it while no run is going). */
+  workspace(context: WorkContext): WorkspaceLike;
   /** Start a Claude run in the background. False if no capacity right now. */
   startRun(context: WorkContext, phase: Phase, details?: RunDetails): boolean;
 }
