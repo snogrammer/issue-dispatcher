@@ -1,5 +1,10 @@
-# Run with:  cp stack.env.example stack.env  (fill it in), then  docker compose up -d
-# Optional services for project test suites:  docker compose --profile test-services up -d
+# Local development stack: builds the image from this checkout.
+#
+#   cp .env.example .env   (fill it in; the same file `pnpm dev` reads)
+#   docker compose up -d --build
+#   docker compose --profile test-services up -d   # also Postgres + Redis
+#
+# For a Portainer deployment use docker-compose.portainer.yml instead.
 #
 # Deliberately absent: the Docker socket. Claude runs commands in this
 # container with no approval prompts, so it must not be able to control the host.
@@ -13,14 +18,23 @@ services:
         EXTRA_APT_PACKAGES: ${EXTRA_APT_PACKAGES:-}
     image: claude-dispatcher:local
     restart: unless-stopped
-    env_file: stack.env
+    # DISPATCHER_ENV_FILE lets scripts/dev-gitea.sh point at its own file
+    # without touching your .env.
+    env_file:
+      - path: ${DISPATCHER_ENV_FILE:-.env}
+        required: false
+    # Container paths. These win over the env file, whose DATA_DIR and
+    # WORKSPACE_DIR are host paths meant for `pnpm dev`.
+    environment:
+      DATA_DIR: /data
+      WORKSPACE_DIR: /workspaces
     volumes:
       - dispatcher-data:/data
       - dispatcher-workspaces:/workspaces
     mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
     networks: [dispatcher]
     # /healthz and /status listen on 127.0.0.1 inside the container by default.
-    # To reach /status from the host, set STATUS_HOST=0.0.0.0 in stack.env and
+    # To reach /status from the host, set STATUS_HOST=0.0.0.0 in .env and
     # uncomment:
     # ports:
     #   - "127.0.0.1:8080:8080"
@@ -28,7 +42,7 @@ services:
   # Throwaway services for repos whose tests need them (same isolated network;
   # reach them as postgres:5432 and redis:6379).
   postgres:
-    image: postgres:17
+    image: postgres:17-alpine
     profiles: [test-services]
     environment:
       POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:-postgres}
@@ -36,7 +50,7 @@ services:
     networks: [dispatcher]
 
   redis:
-    image: redis:8
+    image: redis:8-alpine
     profiles: [test-services]
     networks: [dispatcher]
 

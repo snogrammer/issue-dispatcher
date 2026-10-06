@@ -1,0 +1,57 @@
+# claude-dispatcher as a git-backed Portainer stack, running the published image.
+#
+# Portainer writes `stack.env` from the stack's environment variables (see
+# stack.env.example for the full list). These pick the image and host paths:
+#
+#   DISPATCHER_IMAGE            registry path, e.g. registry.example.com/org/claude-dispatcher
+#   DISPATCHER_TAG              tag to run (default: latest). The publish workflow's
+#                               redeploy pulls `latest`; pin `v1.2.3` or a commit
+#                               `<sha>` for a fixed version.
+#   DISPATCHER_DATA_PATH        host directory for state (SQLite)
+#   DISPATCHER_WORKSPACES_PATH  host directory for repo checkouts
+#   DISPATCHER_MEMORY_LIMIT     container memory limit (default: 4g)
+#
+# The container runs as uid 10001, so create both host directories owned by it
+# before the first deploy:
+#
+#   mkdir -p /srv/claude-dispatcher/{data,workspaces}
+#   chown -R 10001:10001 /srv/claude-dispatcher
+#
+# Both directories can be emptied: state is rebuilt from Gitea labels and
+# checkouts are re-cloned.
+#
+# Deliberately absent: the Docker socket. Claude runs commands in this
+# container with no approval prompts, so it must not be able to control the host.
+
+services:
+  dispatcher:
+    image: ${DISPATCHER_IMAGE:?set DISPATCHER_IMAGE}:${DISPATCHER_TAG:-latest}
+    # The publish workflow's redeploy step waits on this name.
+    container_name: claude-dispatcher
+    restart: unless-stopped
+    env_file: stack.env
+    # Container paths. These win over stack.env so state always lands on the
+    # bind mounts.
+    environment:
+      DATA_DIR: /data
+      WORKSPACE_DIR: /workspaces
+    volumes:
+      - ${DISPATCHER_DATA_PATH:?set DISPATCHER_DATA_PATH}:/data
+      - ${DISPATCHER_WORKSPACES_PATH:?set DISPATCHER_WORKSPACES_PATH}:/workspaces
+    mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
+    # Time for SIGTERM handling to stop in-flight Claude runs cleanly.
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks: [dispatcher]
+    # /healthz and /status listen on 127.0.0.1 inside the container by default.
+    # To reach /status from the host, set STATUS_HOST=0.0.0.0 and uncomment:
+    # ports:
+    #   - "127.0.0.1:8080:8080"
+
+networks:
+  # Its own bridge network: nothing else on the host shares it.
+  dispatcher: {}
