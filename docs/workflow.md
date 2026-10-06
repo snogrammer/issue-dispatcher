@@ -58,14 +58,15 @@ The same question is never filed twice for an issue.
 
 ## Steering
 
-| You want to…                       | Do this                                                       |
-| ---------------------------------- | ------------------------------------------------------------- |
-| Merge a PR now, whatever CI says   | Comment `/merge` on the PR (as `HUMAN_REVIEWER`)              |
-| Ask for changes                    | Submit a "request changes" review on the PR's latest commit   |
-| Stop work on an issue              | Unassign the bot or close the issue (open PRs are left alone) |
-| Answer a blocking question         | Comment on the question issue, or close it                    |
-| Retry a blocked issue from scratch | Remove the `claude:blocked` label                             |
-| Prioritize                         | Add `priority:high` or `priority:low`                         |
+| You want to…                          | Do this                                                                                                               |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Merge a PR now, whatever CI says      | Comment `/merge` on the PR (as `HUMAN_REVIEWER`)                                                                      |
+| Ask for changes                       | Submit a "request changes" review on the PR's latest commit                                                           |
+| Stop work on an issue                 | Unassign the bot or close the issue (open PRs are left alone)                                                         |
+| Answer a blocking question            | Comment on the question issue, or close it                                                                            |
+| Retry a blocked issue from scratch    | Remove the `claude:blocked` label                                                                                     |
+| Prioritize                            | Add `priority:high` or `priority:low`                                                                                 |
+| Pick the model or effort for an issue | Add `model:<name>` or `effort:<level>` (see [config.md](config.md#how-a-runs-model-effort-and-turn-limit-are-chosen)) |
 
 When the bot needs you it labels the issue `claude:blocked` and mentions
 `HUMAN_REVIEWER` in a comment explaining why.
