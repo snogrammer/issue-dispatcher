@@ -80,6 +80,8 @@ h2 {
 /* --- Layout ---------------------------------------------------------------- */
 
 .shell {
+  /* The sidebar column's colour runs the full page height, past the sticky sidebar. */
+  background: linear-gradient(90deg, var(--sidebar) 220px, transparent 220px);
   display: grid;
   /* minmax(0, …): wide tables scroll inside their card instead of widening the page. */
   grid-template-columns: 220px minmax(0, 1fr);
@@ -641,6 +643,7 @@ input[type="checkbox"] {
 
 @media (max-width: 820px) {
   .shell {
+    background: none;
     grid-template-columns: minmax(0, 1fr);
   }
   .sidebar {

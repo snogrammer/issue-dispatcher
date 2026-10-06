@@ -60,6 +60,7 @@ const usd = (n) =>
   n === null || n === undefined
     ? "—"
     : `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 3 : 2 })}`;
+const runCount = (n) => `${num(n)} run${n === 1 ? "" : "s"}`;
 const num = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString());
 
 function duration(ms) {
@@ -484,12 +485,12 @@ async function overviewPage(gen) {
       tile("Sessions", `${sessions.running} / ${sessions.max}`, "Claude runs in progress"),
       tile("Held issues", work.length, stateSummary || "none"),
       tile("Watching", status.repos.length, status.repos.length === 1 ? "repo" : "repos"),
-      tile("Cost 24h", usd(costs.last24h.costUsd), `${num(costs.last24h.runs)} runs`),
-      tile("Cost 7d", usd(costs.last7d.costUsd), `${num(costs.last7d.runs)} runs`),
+      tile("Cost 24h", usd(costs.last24h.costUsd), `${runCount(costs.last24h.runs)}`),
+      tile("Cost 7d", usd(costs.last7d.costUsd), `${runCount(costs.last7d.runs)}`),
       tile(
         "All time",
         usd(costs.allTime.costUsd),
-        `${num(costs.allTime.runs)} runs · up ${status.startedAt ? duration(Date.now() - new Date(status.startedAt).getTime()) : "—"}`,
+        `${runCount(costs.allTime.runs)} · up ${status.startedAt ? duration(Date.now() - new Date(status.startedAt).getTime()) : "—"}`,
       ),
     ),
     h(
@@ -599,7 +600,7 @@ async function workDetailPage(gen, repo, issue) {
       h("h1", {}, `${repo} #${issue}`),
       issueLink(repo, issue),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted" }, `${data.runs.length} runs · ${usd(total)}`),
+      h("span", { class: "muted" }, `${runCount(data.runs.length)} · ${usd(total)}`),
     ),
     h(
       "div",
@@ -673,7 +674,7 @@ function dayChart(byDay, since, days) {
             height: Math.max(H - pad.b - y(b.cost), b.cost > 0 ? 1 : 0),
             rx: 2,
           },
-          s("title", {}, `${b.day}: ${usd(b.cost)} · ${b.runs} runs`),
+          s("title", {}, `${b.day}: ${usd(b.cost)} · ${runCount(b.runs)}`),
         ),
       ),
       s("text", { class: "axis", x: pad.l, y: H - 6 }, bars[0]?.day ?? ""),
@@ -705,7 +706,7 @@ function hbars(items) {
           h(
             "span",
             { class: "muted" },
-            `${usd(item.costUsd)} · ${num(item.runs)} runs · ${num(item.inputTokens + item.outputTokens)} tok`,
+            `${usd(item.costUsd)} · ${runCount(item.runs)} · ${num(item.inputTokens + item.outputTokens)} tok`,
           ),
         ),
         h("div", { class: "track" }, fill),
@@ -782,7 +783,7 @@ async function runsPage(gen, query) {
     h(
       "div",
       { class: "grid tiles" },
-      tile(`Cost, ${days}d`, usd(costs.total.costUsd), `${num(costs.total.runs)} runs`),
+      tile(`Cost, ${days}d`, usd(costs.total.costUsd), `${runCount(costs.total.runs)}`),
       tile("Avg per run", usd(costs.total.runs ? costs.total.costUsd / costs.total.runs : 0)),
       tile("Input tokens", num(costs.total.inputTokens)),
       tile("Output tokens", num(costs.total.outputTokens)),
@@ -1362,6 +1363,22 @@ async function route() {
   }
 }
 
+/**
+ * Keep the sidebar's health dot current on every page, not just the ones that
+ * fetch /status. /healthz answers 503 with the same body when stale.
+ */
+async function refreshHealth() {
+  try {
+    const response = await fetch("/healthz");
+    const health = await response.json();
+    renderHealth({ health, version: session?.version ?? "?" });
+  } catch {
+    renderHealth(null);
+  }
+}
+
 window.addEventListener("hashchange", route);
 await loadSession();
 route();
+void refreshHealth();
+setInterval(() => void refreshHealth(), 10_000);
