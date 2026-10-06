@@ -105,8 +105,10 @@ class PrLifecycle implements Lifecycle {
 
     if (context.work.prStack.length === 0) {
       const pulls = await this.ensurePulls(context, report);
+      // From here on runs work on the bottom PR's branch, whatever Claude named it.
       let next = actions.update(context, {
         prStack: pulls.map((pull) => pull.number),
+        branch: pulls[0]?.head.ref ?? context.work.branch,
         lastSha: pulls[0]?.head.sha ?? null,
         fixAttempts: 0,
       });
@@ -121,14 +123,24 @@ class PrLifecycle implements Lifecycle {
     // A follow-up round (fix-ci, address-review) on the bottom PR.
     const bottom = await this.gitea.getPull(context.repo.ref, context.work.prStack[0] ?? 0);
     const head = pushed.get(bottom.head.ref);
-    if (head === undefined || head === context.work.lastSha) {
+    if (head === undefined) {
+      await actions.block(
+        context,
+        `The ${phase} round on #${String(bottom.number)} didn't report its branch \`${bottom.head.ref}\`, so nothing was pushed to the PR.`,
+      );
+      return;
+    }
+    if (head === context.work.lastSha) {
       await actions.block(
         context,
         `The ${phase} round on #${String(bottom.number)} made no new commits, so it would only repeat itself.`,
       );
       return;
     }
-    actions.update(context, { lastSha: head });
+    actions.update(context, {
+      lastSha: head,
+      ...(phase === "rebase" ? { rebaseFrom: null } : {}),
+    });
     await this.gitea.createComment(
       context.repo.ref,
       bottom.number,
@@ -179,6 +191,10 @@ class PrLifecycle implements Lifecycle {
     }
     if (pull.state === "closed") {
       await actions.block(context, `#${String(pull.number)} was closed without being merged.`);
+      return;
+    }
+    if (context.work.rebaseFrom !== null) {
+      await this.rebaseStack(context, pull, actions);
       return;
     }
     // Someone (or a previous round) pushed: track the head so CI timing is right.
@@ -234,13 +250,17 @@ class PrLifecycle implements Lifecycle {
     context: WorkContext,
     pull: PullRequest,
     actions: EngineActions,
-    phase: "fix-ci" | "address-review",
+    phase: "fix-ci" | "address-review" | "rebase",
     details: RunDetails,
   ): Promise<void> {
     const attempts = context.work.fixAttempts;
     const max = this.config.maxFixAttempts;
     if (attempts >= max) {
-      const what = phase === "fix-ci" ? "CI is still failing" : "Review feedback is still open";
+      const what = {
+        "fix-ci": "CI is still failing",
+        "address-review": "Review feedback is still open",
+        rebase: `It still conflicts with \`${details.onto ?? pull.base.ref}\``,
+      }[phase];
       await actions.block(
         context,
         `${what} on #${String(pull.number)} after ${String(max)} rounds. Comment \`/merge\` on #${String(pull.number)} to merge anyway.`,
@@ -259,6 +279,45 @@ class PrLifecycle implements Lifecycle {
     return Promise.resolve();
   }
 
+  /**
+   * The PR below `pull` in the stack merged; `rebaseFrom` is its head. Replay
+   * this branch's own commits onto the default branch: mechanically when it
+   * applies cleanly, otherwise as a Claude rebase round (whose conflicts can
+   * still end in a question for the human). Either way the push uses a lease.
+   */
+  private async rebaseStack(
+    context: WorkContext,
+    pull: PullRequest,
+    actions: EngineActions,
+  ): Promise<void> {
+    const upstream = context.work.rebaseFrom;
+    if (upstream === null) return;
+    const { repo } = context;
+    const branch = pull.head.ref;
+    const workspace = actions.workspace(context);
+    await workspace.prepare(branch, repo.defaultBranch);
+
+    if (!(await workspace.isAncestor(upstream, branch))) {
+      // Already rebased (e.g. by an earlier round before a restart).
+      actions.update(context, { rebaseFrom: null });
+      return;
+    }
+    if ((await workspace.rebaseOnto(branch, repo.defaultBranch, upstream)) === "rebased") {
+      const head = (await workspace.push(context.issue.number, [branch])).get(branch) ?? null;
+      actions.update(context, { rebaseFrom: null, lastSha: head });
+      await this.gitea.createComment(
+        repo.ref,
+        pull.number,
+        `Rebased onto \`${repo.defaultBranch}\` now that the PR below it merged.`,
+      );
+      return;
+    }
+    await this.fixRound(context, pull, actions, "rebase", {
+      onto: repo.defaultBranch,
+      upstream,
+    });
+  }
+
   // --- Merging ----------------------------------------------------------------
 
   private async merge(
@@ -267,10 +326,8 @@ class PrLifecycle implements Lifecycle {
     actions: EngineActions,
   ): Promise<void> {
     if (!pull.mergeable) {
-      await actions.block(
-        context,
-        `#${String(pull.number)} can't be merged automatically (it conflicts with \`${pull.base.ref}\`).`,
-      );
+      // The base moved under the PR: let Claude rebase and resolve, as a round.
+      await this.fixRound(context, pull, actions, "rebase", { onto: pull.base.ref });
       return;
     }
     const stacked = context.work.prStack.length > 1;
@@ -315,15 +372,19 @@ class PrLifecycle implements Lifecycle {
       await this.gitea.deleteBranch(repo.ref, pull.head.ref).catch((error: unknown) => {
         this.log.warn("could not delete merged branch", { branch: pull.head.ref, error });
       });
+      // Recorded first, so the rebase still happens after a restart or a wait.
       const updated = actions.update(context, {
         prStack: rest,
+        branch: retargeted.head.ref,
         fixAttempts: 0,
         lastSha: retargeted.head.sha,
+        rebaseFrom: pull.head.sha,
       });
       await actions.comment(
         updated,
         `Merged #${String(pull.number)}. Next in the stack: #${String(next)}, now targeting \`${repo.defaultBranch}\`.`,
       );
+      await this.rebaseStack(updated, retargeted, actions);
       return;
     }
     // Close before releasing: if we crash in between, the issue can't be

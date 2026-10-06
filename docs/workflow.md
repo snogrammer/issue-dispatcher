@@ -11,7 +11,15 @@
    with the failing job logs; requested changes start a review round. Rounds
    are capped by `MAX_FIX_ATTEMPTS` per PR, and a round that commits nothing
    stops instead of looping.
-4. **Done.** After the last PR merges the issue is closed and the next
+4. **Stacks move up.** When the bottom PR of a stack merges, the next PR is
+   retargeted to the default branch, the merged branch is deleted, and the
+   next branch is rebased onto the default branch (dropping the merged PR's
+   commits, which a squash or rebase merge rewrote). A clean rebase is done
+   by the dispatcher; conflicts go to Claude as a rebase round. A PR that
+   conflicts because the default branch moved gets a rebase round too.
+   Rebase rounds count toward `MAX_FIX_ATTEMPTS`; if Claude can't resolve a
+   conflict it asks you (see Questions).
+5. **Done.** After the last PR merges the issue is closed and the next
    assigned issue is picked up.
 
 CI runners are shared and few, so while `CI_MAX_QUEUE` or more Actions runs

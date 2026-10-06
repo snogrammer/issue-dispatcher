@@ -56,7 +56,10 @@ describe("buildPrompt", () => {
       }),
     ).toContain('<untrusted source="review bob on src/a.ts">');
     expect(buildPrompt("rebase", CONTEXT, { onto: "main" })).toContain(
-      "Rebase claude/7-add-runner onto main",
+      "claude/7-add-runner conflicts with main. Rebase it onto origin/main",
+    );
+    expect(buildPrompt("rebase", CONTEXT, { onto: "main", upstream: "abc123" })).toContain(
+      "git rebase --onto origin/main abc123 claude/7-add-runner",
     );
   });
 });

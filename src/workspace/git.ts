@@ -105,6 +105,38 @@ export class Workspace {
     return pushed;
   }
 
+  /**
+   * Replay `branch`'s own commits (those after `upstream`) onto the remote
+   * `onto` branch. Used after the PR below it in a stack merged: with squash
+   * or rebase merges, `upstream`'s commits now exist in `onto` under new SHAs.
+   * On conflicts the rebase is aborted and the branch left as it was.
+   */
+  async rebaseOnto(
+    branch: string,
+    onto: string,
+    upstream: string,
+  ): Promise<"rebased" | "conflict"> {
+    await this.git(["fetch", "--quiet", "--prune", "origin"], { auth: true });
+    await this.git(["checkout", "--quiet", branch]);
+    try {
+      await this.git(["rebase", "--quiet", "--onto", `origin/${onto}`, upstream, branch]);
+      return "rebased";
+    } catch {
+      await this.git(["rebase", "--abort"]).catch(() => undefined);
+      return "conflict";
+    }
+  }
+
+  /** True if `commit` is in `ref`'s history (e.g. a stack's merged base not yet rebased away). */
+  async isAncestor(commit: string, ref: string): Promise<boolean> {
+    try {
+      await this.git(["merge-base", "--is-ancestor", commit, ref]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async head(ref = "HEAD"): Promise<string> {
     return (await this.git(["rev-parse", ref])).trim();
   }

@@ -498,7 +498,7 @@ export class Engine {
         return;
       case "rate_limited": {
         // State and session are kept; the run resumes once the governor allows.
-        if (phase === "fix-ci" || phase === "address-review") {
+        if (phase === "fix-ci" || phase === "address-review" || phase === "rebase") {
           // A round cut off by the limit doesn't count against MAX_FIX_ATTEMPTS.
           this.store.updateWork(name, context.issue.number, {
             fixAttempts: Math.max(0, context.work.fixAttempts - 1),
@@ -620,6 +620,7 @@ export class Engine {
         await this.removeStateLabels(context.repo, context.issue.number, context.issue.labels);
       },
       startRun: (context, phase, details) => this.startRun(context, phase, details),
+      workspace: (context) => this.deps.workspace(context.repo),
     };
   }
 

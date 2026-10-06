@@ -71,6 +71,7 @@ export function buildPrompt(
     failures?: CiFailure[];
     reviewNotes?: ReviewNote[];
     onto?: string;
+    upstream?: string;
     answers?: { question: string; answer: string }[];
   } = {},
 ): string {
@@ -83,7 +84,7 @@ export function buildPrompt(
     case "address-review":
       return addressReviewPrompt(context, details.reviewNotes ?? []);
     case "rebase":
-      return rebasePrompt(context, details.onto ?? context.baseBranch);
+      return rebasePrompt(context, details.onto ?? context.baseBranch, details.upstream);
   }
 }
 
@@ -121,8 +122,17 @@ function addressReviewPrompt(context: PromptContext, notes: ReviewNote[]): strin
 ${sections}`;
 }
 
-function rebasePrompt(context: PromptContext, onto: string): string {
-  return `The branch below ${context.branch} in its stack was merged. Rebase ${context.branch} onto ${onto}, resolve any conflicts so the change still does what issue #${String(context.issue.number)} asks, run the checks, and keep the branch name. The dispatcher force-pushes it with a lease afterwards.`;
+function rebasePrompt(context: PromptContext, onto: string, upstream?: string): string {
+  const { branch } = context;
+  const issue = `#${String(context.issue.number)}`;
+  if (upstream !== undefined) {
+    return `The PR below ${branch} in its stack was merged into ${onto}, so its commits are now in ${onto} under new SHAs. Rebase only this branch's own commits onto ${onto}:
+
+    git rebase --onto origin/${onto} ${upstream} ${branch}
+
+Resolve the conflicts so the change still does what issue ${issue} asks, run the checks, and keep the branch name. The dispatcher force-pushes it with a lease afterwards.`;
+  }
+  return `${branch} conflicts with ${onto}. Rebase it onto origin/${onto}, resolve the conflicts so the change still does what issue ${issue} asks, run the checks, and keep the branch name. The dispatcher force-pushes it with a lease afterwards.`;
 }
 
 function answersPrompt(

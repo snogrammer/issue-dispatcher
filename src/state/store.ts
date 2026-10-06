@@ -31,6 +31,8 @@ export interface IssueWork {
   lastSha: string | null;
   /** When `lastSha` last changed. */
   headSince: string | null;
+  /** The merged stack base still to be rebased away from the bottom PR. */
+  rebaseFrom: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -43,6 +45,7 @@ export interface WorkPatch {
   fixAttempts?: number;
   /** Also records `headSince` when the SHA actually changes. */
   lastSha?: string | null;
+  rebaseFrom?: string | null;
 }
 
 export interface Governor {
@@ -108,6 +111,7 @@ interface WorkRow {
   fix_attempts: number;
   last_sha: string | null;
   head_since: string | null;
+  rebase_from: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -216,7 +220,7 @@ export class StateStore {
         this.db
           .prepare(
             `UPDATE issue_work SET state = ?, branch = ?, pr_stack = '[]', session_id = NULL,
-               fix_attempts = 0, last_sha = NULL, head_since = NULL, updated_at = ?
+               fix_attempts = 0, last_sha = NULL, head_since = NULL, rebase_from = NULL, updated_at = ?
              WHERE repo = ? AND issue = ?`,
           )
           .run(initial.state ?? "working", initial.branch ?? null, now, repo, issue);
@@ -366,6 +370,7 @@ export class StateStore {
       sessionId: "session_id",
       fixAttempts: "fix_attempts",
       lastSha: "last_sha",
+      rebaseFrom: "rebase_from",
     };
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -430,6 +435,7 @@ function toWork(row: WorkRow): IssueWork {
     fixAttempts: row.fix_attempts,
     lastSha: row.last_sha,
     headSince: row.head_since,
+    rebaseFrom: row.rebase_from,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
