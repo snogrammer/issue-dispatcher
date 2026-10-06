@@ -129,6 +129,12 @@ const CASES: Case[] = [
   ],
   ["reviews", (g) => g.listPullReviews(repo, 9), "GET", `/repos/org/repo/pulls/9/reviews?${PAGE}`],
   [
+    "delete branch",
+    (g) => g.deleteBranch(repo, "claude/4-x"),
+    "DELETE",
+    "/repos/org/repo/branches/claude%2F4-x",
+  ],
+  [
     "review comments",
     (g) => g.listReviewComments(repo, 9, 2),
     "GET",

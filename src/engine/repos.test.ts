@@ -6,7 +6,7 @@ import { resolveRepos } from "./repos.js";
 describe("resolveRepos", () => {
   it("combines explicit repos and org repos, deduplicated and sorted", async () => {
     const gitea = new FakeGitea("bot");
-    gitea.addRepo("team/b", { defaultBranch: "develop" });
+    gitea.addRepo("team/b", { defaultBranch: "develop", mergeStyle: "squash" });
     gitea.addRepo("team/a");
     gitea.addRepo("other/x");
 
@@ -16,11 +16,36 @@ describe("resolveRepos", () => {
     );
 
     expect(repos).toEqual([
-      { ref: { owner: "other", name: "x" }, fullName: "other/x", defaultBranch: "main" },
-      { ref: { owner: "team", name: "a" }, fullName: "team/a", defaultBranch: "main" },
-      { ref: { owner: "team", name: "b" }, fullName: "team/b", defaultBranch: "develop" },
+      {
+        ref: { owner: "other", name: "x" },
+        fullName: "other/x",
+        defaultBranch: "main",
+        mergeStyle: "merge",
+      },
+      {
+        ref: { owner: "team", name: "a" },
+        fullName: "team/a",
+        defaultBranch: "main",
+        mergeStyle: "merge",
+      },
+      {
+        ref: { owner: "team", name: "b" },
+        fullName: "team/b",
+        defaultBranch: "develop",
+        mergeStyle: "squash",
+      },
     ]);
     expect(skipped).toEqual([]);
+  });
+
+  it("lets MERGE_STYLE override each repo's default", async () => {
+    const gitea = new FakeGitea("bot");
+    gitea.addRepo("team/b", { mergeStyle: "squash" });
+    const { repos } = await resolveRepos(
+      { repos: ["team/b"], orgs: [], mergeStyle: "rebase" },
+      gitea,
+    );
+    expect(repos[0]?.mergeStyle).toBe("rebase");
   });
 
   it("reports missing, archived and empty repos instead of failing", async () => {

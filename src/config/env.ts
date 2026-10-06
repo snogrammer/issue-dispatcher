@@ -27,6 +27,7 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "MAX_CONCURRENT_SESSIONS", path: ["maxConcurrentSessions"], kind: "int" },
   { name: "MAX_FIX_ATTEMPTS", path: ["maxFixAttempts"], kind: "int" },
   { name: "REQUIRE_CI", path: ["requireCi"], kind: "bool" },
+  { name: "MERGE_STYLE", path: ["mergeStyle"], kind: "string" },
   { name: "CI_MAX_QUEUE", path: ["ciMaxQueue"], kind: "int" },
   { name: "CI_NO_STATUS_TIMEOUT_MIN", path: ["ciNoStatusTimeoutMin"], kind: "int" },
   { name: "CLAUDE_BIN", path: ["claude", "bin"], kind: "string" },

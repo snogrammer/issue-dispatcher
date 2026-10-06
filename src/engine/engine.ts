@@ -488,15 +488,20 @@ export class Engine {
   private actions(): EngineActions {
     return {
       setState: (context, state) => this.setState(context, state),
+      update: (context, patch) => ({
+        ...context,
+        work: this.store.updateWork(context.repo.fullName, context.issue.number, patch),
+      }),
       comment: async (context, body) => {
         await this.gitea.createComment(context.repo.ref, context.issue.number, body);
       },
       block: async (context, reason) => {
         const next = await this.setState(context, "blocked");
+        const { labelPrefix, humanReviewer, gitea } = this.config;
         await this.gitea.createComment(
           next.repo.ref,
           next.issue.number,
-          `${reason}\n\nTo retry from scratch, remove the \`${stateLabel(this.config.labelPrefix, "blocked")}\` label. To drop the issue, unassign ${this.config.gitea.botUsername}.`,
+          `@${humanReviewer} ${reason}\n\nTo retry from scratch, remove the \`${stateLabel(labelPrefix, "blocked")}\` label. To drop the issue, unassign ${gitea.botUsername}.`,
         );
       },
       finish: async (context, outcome) => {

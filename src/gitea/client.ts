@@ -261,6 +261,10 @@ export class GiteaClient {
     });
   }
 
+  async deleteBranch({ owner, name }: RepoRef, branch: string): Promise<void> {
+    await this.http.request("DELETE", p`/repos/${owner}/${name}/branches/${branch}`);
+  }
+
   listPullReviews({ owner, name }: RepoRef, index: number): Promise<PullReview[]> {
     return this.http.paginate(p`/repos/${owner}/${name}/pulls/${index}/reviews`);
   }

@@ -24,6 +24,7 @@ the YAML file is an error. Empty variables count as unset.
 | `MAX_CONCURRENT_SESSIONS`  | `maxConcurrentSessions`    | `1`                          | Claude sessions running at once, across all repos                                                                          |
 | `MAX_FIX_ATTEMPTS`         | `maxFixAttempts`           | `3`                          | CI/review fix rounds before asking the human                                                                               |
 | `REQUIRE_CI`               | `requireCi`                | `true`                       | Never auto-merge a PR that reports no CI status. Accepts `true/false/1/0/yes/no/on/off`                                    |
+| `MERGE_STYLE`              | `mergeStyle`               | repo default                 | `merge`, `rebase`, `rebase-merge`, `squash` or `fast-forward-only`; unset uses each repo's default merge style             |
 | `CI_MAX_QUEUE`             | `ciMaxQueue`               | `2`                          | Defer pushes while queued + running Actions runs exceed this                                                               |
 | `CI_NO_STATUS_TIMEOUT_MIN` | `ciNoStatusTimeoutMin`     | `15`                         | Minutes without any CI status before filing a question issue                                                               |
 | `CLAUDE_BIN`               | `claude.bin`               | `claude`                     | Claude Code executable                                                                                                     |

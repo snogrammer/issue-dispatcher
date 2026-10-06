@@ -3,7 +3,7 @@ import type { Report } from "../claude/report.js";
 import type { CiFailure, ReviewNote } from "../claude/prompts.js";
 import type { Phase } from "../config/schema.js";
 import type { Issue } from "../gitea/types.js";
-import type { IssueWork } from "../state/store.js";
+import type { IssueWork, WorkPatch } from "../state/store.js";
 import type { Workspace } from "../workspace/git.js";
 import type { WatchedRepo } from "./repos.js";
 
@@ -36,6 +36,8 @@ export interface RunDetails {
 export interface EngineActions {
   /** Move the issue to `state`: label first, then the store. */
   setState(context: WorkContext, state: ActiveState): Promise<WorkContext>;
+  /** Record progress (PR stack, head SHA, fix attempts) for the slot holder. */
+  update(context: WorkContext, patch: WorkPatch): WorkContext;
   comment(context: WorkContext, body: string): Promise<void>;
   /** Mark blocked and explain why and how to continue. */
   block(context: WorkContext, reason: string): Promise<void>;
@@ -61,26 +63,41 @@ export interface Lifecycle {
 }
 
 /**
- * Minimal lifecycle: push what Claude committed and hand over for review.
- * PR creation, CI and merging, and question issues replace the relevant parts.
+ * Block when a report says there is nothing to ship: Claude needs an answer,
+ * or made no changes. Returns true if it blocked.
+ */
+export async function blockForReport(
+  context: WorkContext,
+  phase: Phase,
+  report: Report,
+  actions: EngineActions,
+): Promise<boolean> {
+  if (report.outcome === "needs_human") {
+    const questions = report.followups
+      .filter((followup) => followup.blocking)
+      .map((followup) => `- **${followup.title}**\n\n  ${followup.body}`)
+      .join("\n");
+    await actions.block(context, `Claude needs an answer before it can continue:\n\n${questions}`);
+    return true;
+  }
+  if (report.outcome === "no_changes" || report.branches.length === 0) {
+    const what =
+      phase === "implement"
+        ? "Claude found nothing to change."
+        : `The ${phase} round made no changes.`;
+    await actions.block(context, `${what}\n\n${report.summary}`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Minimal lifecycle: push what Claude committed and hand over for review,
+ * without opening PRs. Useful for tests and for running without auto-merge.
  */
 export const basicLifecycle: Lifecycle = {
   async afterRun(context, phase, report, workspace, actions) {
-    if (report.outcome === "needs_human") {
-      const questions = report.followups
-        .filter((followup) => followup.blocking)
-        .map((followup) => `- **${followup.title}**\n\n  ${followup.body}`)
-        .join("\n");
-      await actions.block(
-        context,
-        `Claude needs an answer before it can continue:\n\n${questions}`,
-      );
-      return;
-    }
-    if (report.outcome === "no_changes" || report.branches.length === 0) {
-      await actions.block(context, `Claude found nothing to change.\n\n${report.summary}`);
-      return;
-    }
+    if (await blockForReport(context, phase, report, actions)) return;
     const pushed = await workspace.push(
       context.issue.number,
       report.branches.map((branch) => branch.name),

@@ -50,4 +50,8 @@ export const MIGRATIONS: readonly string[] = [
 
   CREATE INDEX runs_by_issue ON runs (repo, issue);
   `,
+  `
+  -- When last_sha last changed: how long a PR head has waited for CI.
+  ALTER TABLE issue_work ADD COLUMN head_since TEXT;
+  `,
 ];

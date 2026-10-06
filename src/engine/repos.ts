@@ -1,6 +1,6 @@
 import type { Config } from "../config/schema.js";
 import { parseRepo, type GiteaClient } from "../gitea/client.js";
-import type { RepoRef, Repository } from "../gitea/types.js";
+import type { MergeStyle, RepoRef, Repository } from "../gitea/types.js";
 
 /**
  * The concrete repos to watch: every repo listed in REPOS plus every repo in
@@ -11,6 +11,8 @@ export interface WatchedRepo {
   ref: RepoRef;
   fullName: string;
   defaultBranch: string;
+  /** From MERGE_STYLE, else the repo's own default, else "merge". */
+  mergeStyle: MergeStyle;
 }
 
 export interface ResolvedRepos {
@@ -21,7 +23,7 @@ export interface ResolvedRepos {
 export type RepoClient = Pick<GiteaClient, "getRepo" | "listOrgRepos">;
 
 export async function resolveRepos(
-  config: Pick<Config, "repos" | "orgs">,
+  config: Pick<Config, "repos" | "orgs" | "mergeStyle">,
   client: RepoClient,
 ): Promise<ResolvedRepos> {
   const found = new Map<string, Repository>();
@@ -55,9 +57,22 @@ export async function resolveRepos(
         ref: { owner: repo.owner.login, name: repo.name },
         fullName: repo.full_name,
         defaultBranch: repo.default_branch,
+        mergeStyle: config.mergeStyle ?? mergeStyleOf(repo),
       });
     }
   }
   repos.sort((a, b) => a.fullName.localeCompare(b.fullName));
   return { repos, skipped };
+}
+
+const MERGE_STYLES: readonly MergeStyle[] = [
+  "merge",
+  "rebase",
+  "rebase-merge",
+  "squash",
+  "fast-forward-only",
+];
+
+function mergeStyleOf(repo: Repository): MergeStyle {
+  return MERGE_STYLES.find((style) => style === repo.default_merge_style) ?? "merge";
 }
