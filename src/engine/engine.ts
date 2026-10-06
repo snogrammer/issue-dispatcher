@@ -27,6 +27,7 @@ import {
   type WorkContext,
   type WorkspaceLike,
 } from "./lifecycle.js";
+import { CiQueue } from "./ci-queue.js";
 import { Governor, type Observation } from "./governor.js";
 import { KeyedLock } from "./lock.js";
 import { orderCandidates } from "./pickup.js";
@@ -70,6 +71,7 @@ export type EngineGitea = Pick<
   | "createIssue"
   | "addDependency"
   | "closeIssue"
+  | "countWorkflowRuns"
 >;
 
 export interface EngineDeps {
@@ -101,6 +103,9 @@ export class Engine {
   private readonly lifecycle: Lifecycle;
   private readonly questions: QuestionDesk;
   private readonly governor: Governor;
+  private readonly ciQueue: CiQueue;
+  /** Whether CI was backed up at the start of this poll (see CiQueue). */
+  private ciBusy = false;
   private readonly log: Logger;
   private readonly now: () => Date;
   private readonly newSessionId: () => string;
@@ -123,6 +128,7 @@ export class Engine {
     this.newSessionId = deps.newSessionId ?? randomUUID;
     this.questions = new QuestionDesk(deps.config, deps.gitea, this.log);
     this.governor = new Governor(deps.store, deps.config.rateLimit, this.now, this.log);
+    this.ciQueue = new CiQueue(deps.gitea, deps.config.ciMaxQueue, this.log);
   }
 
   /** Number of Claude runs in progress. */
@@ -178,6 +184,7 @@ export class Engine {
     } catch (error) {
       this.log.error("repo discovery failed; using the previous list", { error });
     }
+    await this.checkCi();
     for (const repo of this.repos) {
       if (this.stopping) return;
       try {
@@ -331,9 +338,32 @@ export class Engine {
   private hasCapacity(): boolean {
     return (
       !this.stopping &&
+      !this.ciBusy &&
       !this.governor.isPaused() &&
       this.inFlight.size < this.config.maxConcurrentSessions
     );
+  }
+
+  /**
+   * Count active CI runs once per poll, but only when a run could start
+   * anyway (a session is free and no usage pause), to save API calls.
+   */
+  private async checkCi(): Promise<void> {
+    if (this.inFlight.size >= this.config.maxConcurrentSessions || this.governor.isPaused()) {
+      return;
+    }
+    const load = await this.ciQueue.load(this.repos.map((repo) => repo.ref));
+    if (load.busy !== this.ciBusy) {
+      if (load.busy) {
+        this.log.info("CI is backed up; not starting runs", {
+          active: load.active,
+          max: this.config.ciMaxQueue,
+        });
+      } else {
+        this.log.info("CI has room again; starting runs", { active: load.active });
+      }
+    }
+    this.ciBusy = load.busy;
   }
 
   private startRun(context: WorkContext, phase: Phase, details: RunDetails = {}): boolean {

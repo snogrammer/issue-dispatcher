@@ -214,6 +214,9 @@ class PrLifecycle implements Lifecycle {
     pull: PullRequest,
     actions: EngineActions,
   ): Promise<void> {
+    // A run may exist before Gitea posts its commit status: that's pending, not "no CI".
+    const runs = await this.gitea.listWorkflowRuns(context.repo.ref, { headSha: pull.head.sha });
+    if (runs.some((run) => run.status !== "completed")) return;
     if (!this.config.requireCi) {
       await this.merge(context, pull, actions);
       return;
