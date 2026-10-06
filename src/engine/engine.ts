@@ -529,8 +529,14 @@ export class Engine {
         return;
       case "aborted":
         return;
-      case "rate_limited": {
+      case "rate_limited":
+      case "auth_failed": {
         // State and session are kept; the run resumes once the governor allows.
+        if (result.kind === "auth_failed") {
+          this.log.error("Claude Code can't authenticate; pausing all runs until it can", {
+            error: result.error,
+          });
+        }
         if (phase === "fix-ci" || phase === "address-review" || phase === "rebase") {
           // A round cut off by the limit doesn't count against MAX_FIX_ATTEMPTS.
           this.store.updateWork(name, context.issue.number, {
@@ -538,10 +544,14 @@ export class Engine {
           });
         }
         if (limit.pauseStarted && limit.pausedUntil) {
+          const why =
+            result.kind === "auth_failed"
+              ? `Claude Code can't authenticate (${result.error ?? "unknown error"}); check CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY. Retrying`
+              : "Claude's usage limit was reached. Work continues";
           await this.gitea.createComment(
             context.repo.ref,
             context.issue.number,
-            `Paused: Claude's usage limit was reached. Work continues after ${limit.pausedUntil.toISOString()}.`,
+            `Paused: ${why} after ${limit.pausedUntil.toISOString()}.`,
           );
         }
         return;

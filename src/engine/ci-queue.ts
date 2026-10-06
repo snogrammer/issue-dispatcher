@@ -27,6 +27,9 @@ export interface CiLoad {
 }
 
 export class CiQueue {
+  /** Repos whose counts are failing, so the warning is logged once, not every poll. */
+  private readonly failing = new Set<string>();
+
   constructor(
     private readonly gitea: CiQueueGitea,
     private readonly maxActive: number,
@@ -40,13 +43,16 @@ export class CiQueue {
   async load(repos: RepoRef[]): Promise<CiLoad> {
     let active = 0;
     for (const repo of repos) {
-      for (const status of ACTIVE) {
-        try {
-          active += await this.gitea.countWorkflowRuns(repo, status);
-        } catch (error) {
-          this.log.warn("could not count Actions runs", {
-            repo: `${repo.owner}/${repo.name}`,
-            status,
+      const name = `${repo.owner}/${repo.name}`;
+      try {
+        for (const status of ACTIVE) active += await this.gitea.countWorkflowRuns(repo, status);
+        if (this.failing.delete(name)) this.log.info("counting Actions runs again", { repo: name });
+      } catch (error) {
+        // E.g. 403 when Actions is disabled for the repo or the token can't read it.
+        if (!this.failing.has(name)) {
+          this.failing.add(name);
+          this.log.warn("can't count Actions runs; ignoring this repo's CI load", {
+            repo: name,
             error,
           });
         }

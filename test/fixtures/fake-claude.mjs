@@ -110,6 +110,16 @@ function run() {
       process.stderr.write(`No conversation found with session ID: ${sessionId}\n`);
       process.exitCode = 1;
       return;
+    case "not-logged-in":
+      // Shape from Claude Code 2.1.285 in a container with no credentials.
+      result({
+        is_error: true,
+        result: "Not logged in · Please run /login",
+        num_turns: 0,
+        total_cost_usd: 0,
+      });
+      process.exitCode = 1;
+      return;
     case "malformed":
       process.stdout.write('this is not json\n{"half":\n');
       process.stderr.write("boom: something broke\n");

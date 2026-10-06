@@ -30,6 +30,11 @@ export type RunKind =
   | "aborted"
   /** `--resume` named a session the CLI doesn't have; start a new one instead. */
   | "session_not_found"
+  /**
+   * Claude Code can't make API calls at all: not logged in, bad or expired
+   * credentials, or no credit. Not the issue's fault; every run would fail.
+   */
+  | "auth_failed"
   | "error";
 
 export interface ClaudeRunResult {
@@ -74,6 +79,9 @@ export interface RunRequest {
 
 const STDERR_TAIL_BYTES = 8 * 1024;
 const USAGE_LIMIT_TEXT = /(usage|rate) limit|rate limited/i;
+/** Messages seen from Claude Code 2.1.x for unusable credentials (incl. "Not logged in · Please run /login"). */
+const AUTH_FAILED_TEXT =
+  /not logged in|invalid api key|authentication[ _](failed|error)|oauth token (has )?(expired|revoked)|credit balance (is )?too low/i;
 const SESSION_NOT_FOUND = /^No conversation found with session ID/;
 
 export function runnerOptionsFromConfig(config: Config): RunnerOptions {
@@ -258,6 +266,9 @@ export function classify(state: StreamState, facts: ExitFacts): ClaudeRunResult 
     : "";
   if (state.rateLimit?.status === "rejected" || USAGE_LIMIT_TEXT.test(message)) {
     return { ...base, kind: "rate_limited", error: message || "rate limited" };
+  }
+  if (AUTH_FAILED_TEXT.test(`${message}\n${facts.stderrTail}`)) {
+    return { ...base, kind: "auth_failed", error: message || facts.stderrTail.trim() };
   }
   if (result?.errors.some((error) => SESSION_NOT_FOUND.test(error))) {
     return { ...base, kind: "session_not_found", error: message };

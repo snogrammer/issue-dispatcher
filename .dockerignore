@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+workspaces
+coverage
+observability
+.git
+.gitea
+.env
+.env.*
+stack.env
+*.log

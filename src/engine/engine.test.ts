@@ -346,6 +346,36 @@ describe("routing", () => {
   });
 });
 
+describe("unusable Claude credentials", () => {
+  it("pauses everything instead of blocking issue after issue", async () => {
+    const { gitea, engine, store, runner, clock } = setup();
+    gitea.addIssue(A, { number: 1 });
+    gitea.addIssue(B, { number: 7 });
+    const notLoggedIn = (request: RunRequest): ClaudeRunResult => ({
+      kind: "auth_failed",
+      sessionId: request.resumeSessionId ?? request.sessionId ?? "",
+      stderrTail: "",
+      error: "Not logged in · Please run /login",
+    });
+    runner.script(notLoggedIn);
+
+    await cycle(engine);
+    await cycle(engine);
+
+    expect(runner.requests).toHaveLength(1);
+    expect(gitea.labelNames(A, 1)).toEqual(["claude:working"]);
+    expect(store.activeIssue(B)).toBeNull();
+    expect(store.getGovernor().pausedUntil).toEqual(new Date("2026-06-01T00:15:00Z"));
+    expect(gitea.commentsOn(A, 1).at(-1)).toBe(
+      "Paused: Claude Code can't authenticate (Not logged in · Please run /login); check CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY. Retrying after 2026-06-01T00:15:00.000Z.",
+    );
+
+    clock.now = new Date("2026-06-01T00:15:00Z");
+    await cycle(engine);
+    expect(runner.requests.at(-1)).toMatchObject({ issue: 1, resumeSessionId: "session-1" });
+  });
+});
+
 describe("CI backpressure", () => {
   it("doesn't start runs while CI is backed up, and resumes when it drains", async () => {
     const { gitea, engine, store, runner } = setup({ CI_MAX_QUEUE: "2" });
