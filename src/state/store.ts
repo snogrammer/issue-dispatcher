@@ -86,6 +86,17 @@ export interface RunRecord extends RunStart, Omit<RunResult, "exit"> {
   exit: RunExit | null;
 }
 
+export interface CostTotals {
+  runs: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface CostSummary extends CostTotals {
+  byRepo: (CostTotals & { repo: string })[];
+}
+
 export class SlotOccupiedError extends Error {
   override name = "SlotOccupiedError";
 
@@ -358,6 +369,38 @@ export class StateStore {
             .all(repo, limit)
     ) as RunRow[];
     return rows.map(toRun);
+  }
+
+  /** Runs, cost and tokens per repo for runs started at or after `since` (all time if omitted). */
+  costSummary(since?: Date): CostSummary {
+    const rows = this.db
+      .prepare(
+        `SELECT repo, COUNT(*) AS runs, COALESCE(SUM(cost_usd), 0) AS cost_usd,
+           COALESCE(SUM(input_tokens), 0) AS input_tokens,
+           COALESCE(SUM(output_tokens), 0) AS output_tokens
+         FROM runs WHERE started_at >= ? GROUP BY repo ORDER BY repo`,
+      )
+      .all(since?.toISOString() ?? "") as {
+      repo: string;
+      runs: number;
+      cost_usd: number;
+      input_tokens: number;
+      output_tokens: number;
+    }[];
+    const byRepo = rows.map((row) => ({
+      repo: row.repo,
+      runs: row.runs,
+      costUsd: row.cost_usd,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+    }));
+    return {
+      runs: byRepo.reduce((sum, r) => sum + r.runs, 0),
+      costUsd: byRepo.reduce((sum, r) => sum + r.costUsd, 0),
+      inputTokens: byRepo.reduce((sum, r) => sum + r.inputTokens, 0),
+      outputTokens: byRepo.reduce((sum, r) => sum + r.outputTokens, 0),
+      byRepo,
+    };
   }
 
   // --- Internals ------------------------------------------------------------

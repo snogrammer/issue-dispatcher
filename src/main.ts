@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { runClaude, runnerOptionsFromConfig } from "./claude/runner.js";
@@ -9,6 +10,7 @@ import { GiteaClient } from "./gitea/client.js";
 import { GiteaError } from "./gitea/http.js";
 import { createLogger, type Logger } from "./log.js";
 import { StateStore } from "./state/store.js";
+import { startStatusServer } from "./status.js";
 import { GitError, Workspace } from "./workspace/git.js";
 
 /**
@@ -20,6 +22,7 @@ import { GitError, Workspace } from "./workspace/git.js";
 
 export interface App {
   engine: Engine;
+  store: StateStore;
   stop(): Promise<void>;
 }
 
@@ -49,6 +52,7 @@ export function createApp(config: Config, log: Logger): App {
   });
   return {
     engine,
+    store,
     async stop() {
       await engine.stop();
       store.close();
@@ -58,16 +62,30 @@ export function createApp(config: Config, log: Logger): App {
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   const config = loadConfig({ env });
-  const log = createLogger(config.logLevel);
+  const log = createLogger(config.logLevel, {
+    secrets: [config.gitea.token, env.CLAUDE_CODE_OAUTH_TOKEN, env.ANTHROPIC_API_KEY],
+  });
   log.info("claude-dispatcher starting", { config: redactConfig(config) });
 
   const app = createApp(config, log);
+  // Up before the first poll, so a container healthcheck sees startup progress.
+  const server =
+    config.status.port === 0
+      ? undefined
+      : await startStatusServer({
+          config,
+          store: app.store,
+          snapshot: () => app.engine.snapshot(),
+          version: packageVersion(),
+        });
+  if (server) log.info("status server listening", { host: config.status.host, port: server.port });
+
   let stopping = false;
   const shutdown = (signal: string) => {
     if (stopping) return;
     stopping = true;
     log.info("shutting down; in-flight work resumes on next start", { signal });
-    app.stop().then(
+    Promise.all([app.stop(), server?.close()]).then(
       () => process.exit(0),
       (error: unknown) => {
         log.error("shutdown failed", { error });
@@ -78,9 +96,27 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
-  await app.engine.start();
+  try {
+    await app.engine.start();
+  } catch (error) {
+    // Don't let the open status server keep a failed process alive.
+    await Promise.all([app.stop(), server?.close()]);
+    throw error;
+  }
   log.info("watching repos", { repos: app.engine.watchedRepos().map((repo) => repo.fullName) });
   return app;
+}
+
+/** The version from package.json (next to dist/ at runtime), or "unknown". */
+function packageVersion(): string {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version?: unknown };
+    return typeof manifest.version === "string" ? manifest.version : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 // Run only when executed directly (`node dist/main.js`), not when imported by tests.
@@ -89,9 +125,17 @@ if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
   main().catch((error: unknown) => {
     // Expected startup problems (bad config, wrong bot user, unreachable Gitea)
     // get a one-line message; anything else keeps its stack trace.
+    const portInUse = (error as NodeJS.ErrnoException | undefined)?.code === "EADDRINUSE";
     const expected =
-      error instanceof ConfigError || error instanceof GiteaError || error instanceof GitError;
-    console.error(expected ? `startup failed: ${error.message}` : error);
+      error instanceof ConfigError ||
+      error instanceof GiteaError ||
+      error instanceof GitError ||
+      portInUse;
+    console.error(
+      expected
+        ? `startup failed: ${portInUse ? "STATUS_PORT is already in use. " : ""}${(error as Error).message}`
+        : error,
+    );
     process.exitCode = 1;
   });
 }

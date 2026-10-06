@@ -119,6 +119,13 @@ export const configSchema = z
       })
       .prefault({}),
     logLevel: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
+    /** The /healthz and /status HTTP server; port 0 turns it off. */
+    status: z
+      .strictObject({
+        port: z.int().min(0).max(65535).default(8080),
+        host: z.string().min(1).default("127.0.0.1"),
+      })
+      .prefault({}),
   })
   .refine((config) => config.repos.length + config.orgs.length > 0, {
     message: "set at least one repo (REPOS) or org (ORGS) to watch",

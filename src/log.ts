@@ -1,7 +1,8 @@
 /**
  * Minimal structured logger: one JSON object per line on stdout. Callers pass
- * context as fields; nothing here knows about secrets, so never log tokens
- * (log `redactConfig(config)` instead of the config itself).
+ * context as fields. Secret *values* (the Gitea token, Claude credentials) are
+ * replaced with "[redacted]" wherever they appear in a line, including inside
+ * error messages, so a token that leaks into an exception never reaches logs.
  */
 
 export const LEVELS = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
@@ -17,12 +18,31 @@ export interface Logger {
   child(fields: Fields): Logger;
 }
 
-export function createLogger(
-  level: Level,
-  write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
-  bound: Fields = {},
-): Logger {
-  const threshold = LEVELS.indexOf(level);
+export interface LoggerOptions {
+  write?: (line: string) => void;
+  /** Values to redact. Very short values are ignored to avoid mangling logs. */
+  secrets?: readonly (string | undefined)[];
+}
+
+const MIN_SECRET_LENGTH = 8;
+
+export function createLogger(level: Level, options: LoggerOptions = {}): Logger {
+  const write = options.write ?? ((line: string) => process.stdout.write(`${line}\n`));
+  const secrets = (options.secrets ?? []).filter(
+    (secret): secret is string => secret !== undefined && secret.length >= MIN_SECRET_LENGTH,
+  );
+  const redact = (line: string) =>
+    secrets.reduce((out, secret) => out.replaceAll(secret, "[redacted]"), line);
+  return logger(
+    LEVELS.indexOf(level),
+    (line) => {
+      write(redact(line));
+    },
+    {},
+  );
+}
+
+function logger(threshold: number, write: (line: string) => void, bound: Fields): Logger {
   const emit = (at: Level, message: string, fields: Fields = {}) => {
     if (LEVELS.indexOf(at) < threshold) return;
     write(
@@ -45,7 +65,7 @@ export function createLogger(
     error: (message, fields) => {
       emit("error", message, fields);
     },
-    child: (fields) => createLogger(level, write, { ...bound, ...fields }),
+    child: (fields) => logger(threshold, write, { ...bound, ...fields }),
   };
 }
 

@@ -86,7 +86,19 @@ export interface EngineDeps {
   newSessionId?: () => string;
 }
 
+/** What the engine is doing right now, for /status and /healthz. */
+export interface EngineSnapshot {
+  startedAt: Date | null;
+  /** When the last poll over all repos finished. */
+  lastTickAt: Date | null;
+  ciBusy: boolean;
+  repos: string[];
+  running: { repo: string; issue: number; phase: Phase; startedAt: Date }[];
+}
+
 interface InFlight {
+  issue: number;
+  startedAt: Date;
   phase: Phase;
   controller: AbortController;
   /** Set when work was stopped; the run's result is then ignored. */
@@ -115,6 +127,8 @@ export class Engine {
   private repos: WatchedRepo[] = [];
   private reposRefreshedAt = Number.NEGATIVE_INFINITY;
   private stopping = false;
+  private startedAt: Date | null = null;
+  private lastTickAt: Date | null = null;
   private timer: NodeJS.Timeout | undefined;
   private currentTick: Promise<void> = Promise.resolve();
 
@@ -141,7 +155,23 @@ export class Engine {
   }
 
   /** Discover repos, bootstrap labels, rebuild state from Gitea, start polling. */
+  snapshot(): EngineSnapshot {
+    return {
+      startedAt: this.startedAt,
+      lastTickAt: this.lastTickAt,
+      ciBusy: this.ciBusy,
+      repos: this.repos.map((repo) => repo.fullName),
+      running: [...this.inFlight.entries()].map(([repo, run]) => ({
+        repo,
+        issue: run.issue,
+        phase: run.phase,
+        startedAt: run.startedAt,
+      })),
+    };
+  }
+
   async start(): Promise<void> {
+    this.startedAt = this.now();
     const tokenOwner = (await this.gitea.getCurrentUser()).login;
     if (tokenOwner !== this.config.gitea.botUsername) {
       this.log.warn(
@@ -193,6 +223,7 @@ export class Engine {
         this.log.error("reconcile failed", { repo: repo.fullName, error });
       }
     }
+    this.lastTickAt = this.now();
   }
 
   /** Wait for every run in progress to finish (tests). */
@@ -376,6 +407,8 @@ export class Engine {
     if (!resume) this.store.updateWork(name, context.issue.number, { sessionId });
 
     const run: InFlight = {
+      issue: context.issue.number,
+      startedAt: this.now(),
       phase,
       controller: new AbortController(),
       cancelled: false,

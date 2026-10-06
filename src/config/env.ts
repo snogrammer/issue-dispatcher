@@ -46,6 +46,8 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "WORKSPACE_DIR", path: ["paths", "workspaceDir"], kind: "string" },
   { name: "DATA_DIR", path: ["paths", "dataDir"], kind: "string" },
   { name: "LOG_LEVEL", path: ["logLevel"], kind: "string" },
+  { name: "STATUS_PORT", path: ["status", "port"], kind: "int" },
+  { name: "STATUS_HOST", path: ["status", "host"], kind: "string" },
 ];
 
 /** Path to an optional YAML file merged underneath env values. */
