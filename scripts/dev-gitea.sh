@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 # A throwaway local Gitea for trying the dispatcher without touching a real
 # instance: an admin, a non-admin bot user with a bot-owned token, and a demo
-# repo the bot can write to. Writes stack.env for `docker compose`.
+# repo the bot can write to. Writes .dev-gitea.env (never your .env) and
+# starts docker-compose.yml with it.
 #
-#   scripts/dev-gitea.sh up      # Gitea + users/repo + stack.env + the dispatcher stack
+#   scripts/dev-gitea.sh up      # Gitea + users/repo + .dev-gitea.env + the dispatcher stack
 #   docker compose -p cd-dev logs -f dispatcher
-#   scripts/dev-gitea.sh down    # remove Gitea, the compose stack and stack.env
+#   scripts/dev-gitea.sh restart # recreate the dispatcher after editing .dev-gitea.env
+#   scripts/dev-gitea.sh down    # remove Gitea, the compose stack and .dev-gitea.env
 #
 # Gitea is reachable on http://127.0.0.1:13000 (log in as dev-admin; the
 # password is printed by `up`). Claude credentials are not set: add
-# CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY to stack.env for real runs.
+# CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY to .dev-gitea.env for real runs
+# (then `scripts/dev-gitea.sh restart`).
 set -euo pipefail
 
 NAME=cd-dev-gitea
 PORT=13000
 API="http://127.0.0.1:${PORT}/api/v1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE=.dev-gitea.env
+# docker-compose.yml reads the dispatcher env from this file instead of .env.
+export DISPATCHER_ENV_FILE="$ENV_FILE"
 
 up() {
   docker run -d --name "$NAME" -p "127.0.0.1:${PORT}:3000" \
@@ -51,7 +57,7 @@ up() {
     -d '{"permission":"write"}' "${API}/repos/dev/demo/collaborators/claude-bot" >/dev/null
 
   umask 077
-  cat >"${ROOT}/stack.env" <<ENV
+  cat >"${ROOT}/${ENV_FILE}" <<ENV
 GITEA_URL=http://${NAME}:3000
 GITEA_TOKEN=${bot_token}
 BOT_USERNAME=claude-bot
@@ -73,11 +79,16 @@ ENV
 down() {
   (cd "$ROOT" && docker compose -p cd-dev down -v 2>/dev/null) || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
-  rm -f "${ROOT}/stack.env"
+  rm -f "${ROOT}/${ENV_FILE}"
+}
+
+restart() {
+  (cd "$ROOT" && docker compose -p cd-dev up -d --force-recreate dispatcher)
 }
 
 case "${1:-}" in
   up) up ;;
   down) down ;;
-  *) echo "usage: $0 up|down" >&2; exit 2 ;;
+  restart) restart ;;
+  *) echo "usage: $0 up|down|restart" >&2; exit 2 ;;
 esac
