@@ -59,5 +59,9 @@ VOLUME ["/data", "/workspaces"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:' + (process.env.STATUS_PORT || 8080) + '/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
+# Set by the publish workflow; declared last so it doesn't bust the layer cache.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=$GIT_SHA
+
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "dist/main.js"]
