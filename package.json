@@ -11,8 +11,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/main.js",
-    "dev": "tsx src/main.ts",
+    "start": "node --env-file-if-exists=.env dist/main.js",
+    "dev": "tsx --env-file-if-exists=.env src/main.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

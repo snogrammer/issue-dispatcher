@@ -19,7 +19,7 @@ function fixture(env: Record<string, string> = {}) {
 
 describe("markers and keys", () => {
   it("round-trips the marker", () => {
-    const meta = { source: 12, key: "abc123def456", blocking: true };
+    const meta = { source: 12, key: "aaaaaaaaaaaa", blocking: true };
     expect(parseMarker(`text\n\n${marker(meta)}`)).toEqual(meta);
     expect(parseMarker("no marker here")).toBeUndefined();
   });
