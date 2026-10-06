@@ -30,6 +30,8 @@ export interface RunDetails {
   failures?: CiFailure[];
   reviewNotes?: ReviewNote[];
   onto?: string;
+  /** Human answers to Claude's blocking questions. */
+  answers?: { question: string; answer: string }[];
 }
 
 /** What a lifecycle may do; implemented by the engine. */
@@ -63,8 +65,9 @@ export interface Lifecycle {
 }
 
 /**
- * Block when a report says there is nothing to ship: Claude needs an answer,
- * or made no changes. Returns true if it blocked.
+ * Block when a report has nothing to ship. (Reports that need a human answer
+ * never get here: the engine files their questions and blocks first.)
+ * Returns true if it blocked.
  */
 export async function blockForReport(
   context: WorkContext,
@@ -73,11 +76,11 @@ export async function blockForReport(
   actions: EngineActions,
 ): Promise<boolean> {
   if (report.outcome === "needs_human") {
-    const questions = report.followups
-      .filter((followup) => followup.blocking)
-      .map((followup) => `- **${followup.title}**\n\n  ${followup.body}`)
-      .join("\n");
-    await actions.block(context, `Claude needs an answer before it can continue:\n\n${questions}`);
+    // Its blocking questions were all filed before and already answered.
+    await actions.block(
+      context,
+      `Claude still says it needs a human, but the questions it asked were already answered.\n\n${report.summary}`,
+    );
     return true;
   }
   if (report.outcome === "no_changes" || report.branches.length === 0) {

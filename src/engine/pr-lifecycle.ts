@@ -73,6 +73,12 @@ class PrLifecycle implements Lifecycle {
   private readonly gitea: PrGitea;
   private readonly now: () => Date;
   private readonly log: Logger;
+  /**
+   * PR heads whose last merge attempt failed. Gitea can refuse a merge
+   * transiently (seen live: 405 right after another merge attempt), so the
+   * first failure for a head is retried next poll and only a repeat blocks.
+   */
+  private readonly mergeFailedFor = new Set<string>();
 
   constructor(deps: PrLifecycleDeps) {
     this.config = deps.config;
@@ -274,6 +280,18 @@ class PrLifecycle implements Lifecycle {
       });
     } catch (error) {
       if (!(error instanceof GiteaError)) throw error;
+      const key = `${context.repo.fullName}#${String(pull.number)}@${pull.head.sha}`;
+      if (!this.mergeFailedFor.has(key)) {
+        this.mergeFailedFor.add(key);
+        this.log.warn("merge refused; retrying next poll", {
+          repo: context.repo.fullName,
+          pull: pull.number,
+          status: error.status,
+          detail: error.detail,
+        });
+        return;
+      }
+      this.mergeFailedFor.delete(key);
       await actions.block(context, `Merging #${String(pull.number)} failed: ${error.detail}`);
       return;
     }

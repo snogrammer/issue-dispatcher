@@ -179,7 +179,10 @@ describe("after a run", () => {
     }));
     await cycle(engine);
     expect(gitea.labelNames(A, 1)).toEqual(["claude:blocked"]);
-    expect(gitea.commentsOn(A, 1).at(-1)).toContain("**Which API?**");
+    expect(gitea.issue(A, 2).title).toBe("Question from #1: Which API?");
+    expect(gitea.commentsOn(A, 1).at(-1)).toContain(
+      "Claude needs answers before it can continue: #2.",
+    );
   });
 });
 

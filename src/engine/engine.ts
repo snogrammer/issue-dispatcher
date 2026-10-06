@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { buildPrompt, systemRules, type PromptContext } from "../claude/prompts.js";
 import type { ClaudeRunResult, RunRequest } from "../claude/runner.js";
+import type { Report } from "../claude/report.js";
 import type { Config, Phase } from "../config/schema.js";
 import {
   ACTIVE_STATES,
@@ -28,6 +29,7 @@ import {
 } from "./lifecycle.js";
 import { KeyedLock } from "./lock.js";
 import { orderCandidates } from "./pickup.js";
+import { QuestionDesk } from "./questions.js";
 import { resolveRepos, type WatchedRepo } from "./repos.js";
 
 /**
@@ -64,6 +66,9 @@ export type EngineGitea = Pick<
   | "addLabels"
   | "removeLabel"
   | "listPulls"
+  | "createIssue"
+  | "addDependency"
+  | "closeIssue"
 >;
 
 export interface EngineDeps {
@@ -94,6 +99,7 @@ export class Engine {
   private readonly gitea: EngineGitea;
   private readonly store: StateStore;
   private readonly lifecycle: Lifecycle;
+  private readonly questions: QuestionDesk;
   private readonly log: Logger;
   private readonly now: () => Date;
   private readonly newSessionId: () => string;
@@ -114,6 +120,7 @@ export class Engine {
     this.log = deps.log ?? silentLogger;
     this.now = deps.now ?? (() => new Date());
     this.newSessionId = deps.newSessionId ?? randomUUID;
+    this.questions = new QuestionDesk(deps.config, deps.gitea, this.log);
   }
 
   /** Number of Claude runs in progress. */
@@ -263,6 +270,7 @@ export class Engine {
         await this.lifecycle.inReview(context, actions);
         return;
       case "blocked":
+        if (await this.resumeIfAnswered(context)) return;
         await this.lifecycle.blocked(context, actions);
         return;
     }
@@ -451,9 +459,7 @@ export class Engine {
     const name = context.repo.fullName;
     switch (result.kind) {
       case "success":
-        if (result.report) {
-          await this.lifecycle.afterRun(context, phase, result.report, workspace, this.actions());
-        }
+        if (result.report) await this.afterSuccess(context, phase, result.report, workspace);
         return;
       case "aborted":
         return;
@@ -481,6 +487,71 @@ export class Engine {
           `The ${phase} run failed (${result.kind}): ${result.error ?? "no details"}`,
         );
     }
+  }
+
+  // --- Questions ------------------------------------------------------------
+
+  /**
+   * File the report's questions for the human. Blocking ones stop here (the
+   * issue waits for answers); otherwise the lifecycle carries on and the
+   * source issue gets a note linking what was filed.
+   */
+  private async afterSuccess(
+    context: WorkContext,
+    phase: Phase,
+    report: Report,
+    workspace: WorkspaceLike,
+  ): Promise<void> {
+    const filed = await this.questions.fileFromReport(context, report);
+    const links = (issues: Issue[]) => issues.map((issue) => `#${String(issue.number)}`).join(", ");
+    if (filed.blocking.length > 0) {
+      await this.actions().block(
+        context,
+        `Claude needs answers before it can continue: ${links(filed.blocking)}. Reply on those issues or close them; work resumes automatically.`,
+      );
+      return;
+    }
+    if (filed.created.length > 0) {
+      await this.gitea.createComment(
+        context.repo.ref,
+        context.issue.number,
+        `Filed for @${this.config.humanReviewer} to look at later: ${links(filed.created)}. Work continues.`,
+      );
+    }
+    await this.lifecycle.afterRun(context, phase, report, workspace, this.actions());
+  }
+
+  /**
+   * Resume a blocked issue once every blocking question is answered: continue
+   * the same session with the answers. The run is started before the state
+   * changes, so if there's no capacity the issue stays blocked and the answers
+   * are picked up again next poll. Returns true if the issue is waiting on
+   * questions (answered or not), so nothing else should handle it this poll.
+   */
+  private async resumeIfAnswered(context: WorkContext): Promise<boolean> {
+    const answers = await this.questions.answers(context);
+    if (answers === "none") return false;
+    if (answers === "pending") return true;
+
+    const phase: Phase = context.work.prStack.length > 0 ? "address-review" : "implement";
+    const details: RunDetails = {
+      answers: answers.map(({ question, answer }) => ({ question, answer })),
+    };
+    if (!this.startRun(context, phase, details)) return true;
+
+    const next = await this.setState(context, phase === "implement" ? "working" : "in-review");
+    await this.questions.closeAnswered(next, answers);
+    await this.gitea.createComment(
+      next.repo.ref,
+      next.issue.number,
+      `Answers received on ${answers.map((a) => `#${String(a.issue.number)}`).join(", ")}. Continuing.`,
+    );
+    this.log.info("resumed with answers", {
+      repo: next.repo.fullName,
+      issue: next.issue.number,
+      phase,
+    });
+    return true;
   }
 
   // --- Actions for lifecycles -------------------------------------------------
