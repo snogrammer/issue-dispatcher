@@ -170,6 +170,14 @@ describe("runClaude", () => {
     });
   });
 
+  it("recognizes unusable credentials", async () => {
+    const { options, request } = setup("not-logged-in");
+    expect(await runClaude(options, request)).toMatchObject({
+      kind: "auth_failed",
+      error: "Not logged in · Please run /login",
+    });
+  });
+
   it("fails clearly on malformed output", async () => {
     const { options, request } = setup("malformed");
     const result = await runClaude(options, request);

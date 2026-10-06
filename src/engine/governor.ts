@@ -62,6 +62,8 @@ export class Governor {
   /** Learn from a finished run. */
   observe(result: Pick<ClaudeRunResult, "kind" | "rateLimit">): Observation {
     if (result.kind === "rate_limited") return this.pause(result.rateLimit);
+    // Credentials don't fix themselves on a schedule: back off until someone does.
+    if (result.kind === "auth_failed") return this.pause(undefined);
     if (result.kind === "success" && this.store.getGovernor().backoffLevel > 0) {
       this.store.setGovernor({ backoffLevel: 0 });
     }

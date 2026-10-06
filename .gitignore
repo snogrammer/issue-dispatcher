@@ -15,3 +15,6 @@ workspaces/
 # Local agent tooling output
 observability/
 .DS_Store
+
+# Docker compose secrets
+stack.env
