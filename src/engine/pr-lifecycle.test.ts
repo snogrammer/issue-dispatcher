@@ -34,7 +34,9 @@ describe("opening pull requests", () => {
     });
     await toReview(fixture);
 
-    const pull = fixture.gitea.pull(A, 2);
+    // The decision to confirm was filed as question #2, so the PR is #3.
+    expect(fixture.gitea.issue(A, 2).title).toBe("Confirm decision on #1: Session store?");
+    const pull = fixture.gitea.pull(A, 3);
     expect(pull).toMatchObject({
       title: "T",
       head: { ref: "claude/1-x", sha: "sha-1" },
@@ -44,9 +46,9 @@ describe("opening pull requests", () => {
     expect(pull.body).toContain(
       "- **Session store?** → cookies. No new infra. (Alternatives: redis.) _Needs confirmation._",
     );
-    expect(fixture.store.getWork(A, 1)).toMatchObject({ prStack: [2], lastSha: "sha-1" });
+    expect(fixture.store.getWork(A, 1)).toMatchObject({ prStack: [3], lastSha: "sha-1" });
     expect(fixture.gitea.labelNames(A, 1)).toEqual(["claude:in-review"]);
-    expect(fixture.gitea.commentsOn(A, 1).at(-1)).toContain("Opened #2.");
+    expect(fixture.gitea.commentsOn(A, 1).at(-1)).toContain("Opened #3.");
   });
 
   it("opens a stack where only the top PR closes the issue", async () => {
@@ -323,10 +325,29 @@ describe("merge problems", () => {
     fixture.gitea.setStatus("sha-1", "success");
     fixture.gitea.mergeFailure = { status: 405, message: "Not all required status checks passed" };
     await cycle(fixture.engine);
+    // The first refusal may be transient (seen live), so it retries once.
+    expect(fixture.store.getWork(A, 1)?.state).toBe("in-review");
+    await cycle(fixture.engine);
     expect(fixture.store.getWork(A, 1)?.state).toBe("blocked");
     expect(fixture.gitea.commentsOn(A, 1).at(-1)).toContain(
       "Merging #2 failed: Not all required status checks passed",
     );
+  });
+});
+
+describe("transient merge refusals", () => {
+  it("merges on the next poll when the first attempt is refused", async () => {
+    const fixture = withPrs();
+    await toReview(fixture);
+    fixture.gitea.setStatus("sha-1", "success");
+    fixture.gitea.mergeFailure = { status: 405, message: "Please try again later" };
+    await cycle(fixture.engine);
+    expect(fixture.gitea.merges).toEqual([]);
+
+    fixture.gitea.mergeFailure = undefined;
+    await cycle(fixture.engine);
+    expect(fixture.gitea.merges).toHaveLength(1);
+    expect(fixture.store.getWork(A, 1)?.state).toBe("done");
   });
 });
 

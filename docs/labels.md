@@ -20,9 +20,9 @@ is working on. To stop work, unassign the bot instead.
 
 ## Questions (set by the dispatcher)
 
-| Label             | Meaning                                            |
-| ----------------- | -------------------------------------------------- |
-| `claude:question` | A follow-up or question filed for `HUMAN_REVIEWER` |
+| Label             | Meaning                                                                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude:question` | A question, follow-up or decision to confirm, filed for `HUMAN_REVIEWER` (see [workflow.md](workflow.md#questions)). Never picked up as work |
 
 ## Routing (set by you)
 

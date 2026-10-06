@@ -335,13 +335,7 @@ export class FakeGitea implements EngineGitea {
     input: { head: string; base: string; title: string; body?: string },
   ): Promise<PullRequest> {
     const repo = key(ref);
-    // PRs and issues share numbers in Gitea.
-    const number =
-      Math.max(
-        0,
-        ...this.repoIssues(repo).keys(),
-        ...(this.pulls.get(repo) ?? []).map((p) => p.number),
-      ) + 1;
+    const number = this.nextNumber(repo);
     this.calls.push(`createPull ${repo} ${input.head} -> ${input.base}`);
     const pull: PullRequest = {
       id: this.nextId++,
@@ -442,6 +436,45 @@ export class FakeGitea implements EngineGitea {
     return Promise.resolve(structuredClone(issue));
   }
 
+  createIssue(
+    ref: RepoRef,
+    input: { title: string; body?: string; assignees?: string[]; labelIds?: number[] },
+  ): Promise<Issue> {
+    const repo = key(ref);
+    const issue = this.addIssue(repo, {
+      number: this.nextNumber(repo),
+      title: input.title,
+      body: input.body ?? "",
+      assignees: input.assignees ?? [],
+      createdAt: "2026-06-01T00:00:00Z",
+    });
+    issue.user = user(this.botLogin);
+    issue.labels = (this.labels.get(repo) ?? []).filter((l) => input.labelIds?.includes(l.id));
+    this.calls.push(`createIssue ${repo}#${String(issue.number)}`);
+    return Promise.resolve(structuredClone(issue));
+  }
+
+  addDependency(
+    ref: RepoRef,
+    index: number,
+    blocker: { repo: RepoRef; index: number },
+  ): Promise<void> {
+    const dependencyKey = `${key(ref)}#${String(index)}`;
+    const blockers = this.dependencies.get(dependencyKey) ?? [];
+    if (blockers.includes(blocker.index)) {
+      // Gitea rejects a duplicate dependency.
+      return Promise.reject(new GiteaError("POST", "/dependencies", 422, "dependency exists"));
+    }
+    this.calls.push(`addDependency ${dependencyKey} blockedBy #${String(blocker.index)}`);
+    this.dependencies.set(dependencyKey, [...blockers, blocker.index]);
+    return Promise.resolve();
+  }
+
+  /** Issues the bot filed (e.g. questions), newest last. */
+  filedIssues(repo: string): Issue[] {
+    return [...this.repoIssues(repo).values()].filter((i) => i.user.login === this.botLogin);
+  }
+
   /** Comment as someone other than the bot (e.g. the reviewer typing /merge). */
   commentAs(repo: string, index: number, author: string, body: string): void {
     this.comments.push({ repo, issue: index, author, body });
@@ -467,6 +500,17 @@ export class FakeGitea implements EngineGitea {
   }
 
   private readonly branchHeads = new Map<string, string>();
+
+  /** PRs and issues share numbers in Gitea. */
+  private nextNumber(repo: string): number {
+    return (
+      Math.max(
+        0,
+        ...this.repoIssues(repo).keys(),
+        ...(this.pulls.get(repo) ?? []).map((p) => p.number),
+      ) + 1
+    );
+  }
 
   private headOf(repo: string, branch: string): string {
     return this.branchHeads.get(`${repo}:${branch}`) ?? `${branch}-head`;

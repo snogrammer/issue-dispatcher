@@ -67,8 +67,14 @@ Your final answer is the structured report. List every branch with commits, bott
 export function buildPrompt(
   phase: Phase,
   context: PromptContext,
-  details: { failures?: CiFailure[]; reviewNotes?: ReviewNote[]; onto?: string } = {},
+  details: {
+    failures?: CiFailure[];
+    reviewNotes?: ReviewNote[];
+    onto?: string;
+    answers?: { question: string; answer: string }[];
+  } = {},
 ): string {
+  if (details.answers && details.answers.length > 0) return answersPrompt(context, details.answers);
   switch (phase) {
     case "implement":
       return implementPrompt(context);
@@ -117,6 +123,20 @@ ${sections}`;
 
 function rebasePrompt(context: PromptContext, onto: string): string {
   return `The branch below ${context.branch} in its stack was merged. Rebase ${context.branch} onto ${onto}, resolve any conflicts so the change still does what issue #${String(context.issue.number)} asks, run the checks, and keep the branch name. The dispatcher force-pushes it with a lease afterwards.`;
+}
+
+function answersPrompt(
+  context: PromptContext,
+  answers: { question: string; answer: string }[],
+): string {
+  const sections = answers
+    .map((qa, index) =>
+      fence(`answer ${String(index + 1)}`, `Question:\n${qa.question}\n\nAnswer:\n${qa.answer}`),
+    )
+    .join("\n\n");
+  return `Your questions about issue #${String(context.issue.number)} were answered. Continue the task on ${context.branch} using these answers, and finish with the structured report as before.
+
+${sections}`;
 }
 
 /** Wrap untrusted text so it can't close its own fence. */

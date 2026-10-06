@@ -18,6 +18,24 @@ PRs merge without human review, so CI is the safety net. With `REQUIRE_CI`
 (the default) a PR that never reports a CI status is not merged; after
 `CI_NO_STATUS_TIMEOUT_MIN` the issue is blocked for a human.
 
+## Questions
+
+Claude doesn't stop to ask when it can pick a sensible option: it takes the
+option it recommends and records the decision. Its report can still raise
+questions, and the dispatcher files each one as an issue labeled
+`claude:question`, assigned to `HUMAN_REVIEWER`:
+
+- **Decisions to confirm** (`Confirm decision on #n: …`): work continued with
+  Claude's choice. Reply if it should change.
+- **Follow-ups** (`Question from #n: …`): things noticed but out of scope.
+- **Blocking questions**: Claude can't continue safely. The issue becomes
+  `claude:blocked` and depends on the question. Work resumes, in the same
+  Claude session with your answer, as soon as you comment on the question
+  (as `HUMAN_REVIEWER`) or close it. Closing without a reply means "go with
+  your recommendation". Comments from anyone else are not passed to Claude.
+
+The same question is never filed twice for an issue.
+
 ## Steering
 
 | You want to…                       | Do this                                                       |
@@ -25,6 +43,7 @@ PRs merge without human review, so CI is the safety net. With `REQUIRE_CI`
 | Merge a PR now, whatever CI says   | Comment `/merge` on the PR (as `HUMAN_REVIEWER`)              |
 | Ask for changes                    | Submit a "request changes" review on the PR's latest commit   |
 | Stop work on an issue              | Unassign the bot or close the issue (open PRs are left alone) |
+| Answer a blocking question         | Comment on the question issue, or close it                    |
 | Retry a blocked issue from scratch | Remove the `claude:blocked` label                             |
 | Prioritize                         | Add `priority:high` or `priority:low`                         |
 
