@@ -1,7 +1,7 @@
 {
   "name": "claude-dispatcher",
   "version": "0.1.0",
-  "description": "Dispatches Gitea issues assigned to a bot user to headless Claude Code and follows the resulting PRs to merge.",
+  "description": "IssueDispatcher: dispatches Gitea issues assigned to a bot user to headless Claude Code and follows the resulting PRs to merge.",
   "license": "MIT",
   "private": true,
   "type": "module",

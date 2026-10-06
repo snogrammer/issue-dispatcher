@@ -65,7 +65,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   const log = createLogger(config.logLevel, {
     secrets: [config.gitea.token, env.CLAUDE_CODE_OAUTH_TOKEN, env.ANTHROPIC_API_KEY],
   });
-  log.info("claude-dispatcher starting", { config: redactConfig(config) });
+  log.info("IssueDispatcher starting", { config: redactConfig(config) });
 
   const app = createApp(config, log);
   // Up before the first poll, so a container healthcheck sees startup progress.

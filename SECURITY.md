@@ -1,6 +1,6 @@
 # Security policy
 
-claude-dispatcher runs an AI agent that executes code and merges pull requests
+IssueDispatcher runs an AI agent that executes code and merges pull requests
 unattended, so security reports are especially welcome.
 
 ## Reporting

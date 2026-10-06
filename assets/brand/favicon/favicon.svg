@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="98 52 352 352">
+<defs>
+  <linearGradient id="flow" gradientUnits="userSpaceOnUse" x1="30" y1="0" x2="264" y2="0">
+    <stop offset="0" stop-color="#13BFE8"/>
+    <stop offset=".55" stop-color="#2678FF"/>
+    <stop offset="1" stop-color="#6A2BFF"/>
+  </linearGradient>
+</defs>
+<!-- hex badge -->
+<path d="M274 52 427 140v176l-153 88-153-88V140Z" fill="#0B1726"/>
+<path d="M274 88 395 158v140l-121 70-121-70V158Z" fill="none" stroke="#FFFFFF" stroke-width="16"/>
+<!-- terminal prompt -->
+<path d="M223 190l45 40-45 40" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M290 273h54" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round"/>
+</svg>

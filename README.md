@@ -1,6 +1,13 @@
-# claude-dispatcher
+<p align="center">
+  <img src="assets/brand/web/issuedispatcher-header-dark.png" alt="IssueDispatcher: turn Gitea issues into autonomous Claude Code work" width="800">
+</p>
 
-Lets [Claude Code](https://docs.claude.com/en/docs/claude-code) work through a
+# IssueDispatcher
+
+> Turn Gitea issues into autonomous Claude Code work.
+
+IssueDispatcher (repo and image: `claude-dispatcher`) lets
+[Claude Code](https://docs.claude.com/en/docs/claude-code) work through a
 [Gitea](https://about.gitea.com) issue backlog like a teammate. Assign an issue
 to a bot user and the dispatcher:
 
@@ -21,13 +28,13 @@ Gitea.
 ## How it works
 
 ```
-                 ┌──────────────────────── claude-dispatcher ───────────────────────┐
+                 ┌───────────────────────── IssueDispatcher ────────────────────────┐
  Gitea  ◀─ poll ─┤ engine: one slot per repo, labels as state, sessions in SQLite   │
  issues, PRs,    │   ├─ runner: claude -p (stream-json) in a per-repo git workspace │
  labels, CI      │   ├─ PR lifecycle: open, watch CI, fix rounds, merge, stacks     │
                  │   ├─ questions: follow-ups and blocking questions as issues      │
                  │   └─ governors: usage limits, CI queue, session cap              │
-                 └───────────────────────────────────────────────────────────────────┘
+                 └──────────────────────────────────────────────────────────────────┘
 ```
 
 - **Labels are the state** (`claude:working`, `claude:in-review`,
@@ -42,7 +49,7 @@ Gitea.
 
 More: [workflow](docs/workflow.md) · [configuration](docs/config.md) ·
 [labels](docs/labels.md) · [deployment](docs/deploy.md) ·
-[operations](docs/operations.md)
+[operations](docs/operations.md) · [brand](docs/brand.md)
 
 ## Requirements
 
