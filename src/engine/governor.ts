@@ -51,7 +51,9 @@ export class Governor {
   /** No new issue may be picked up. Clears an expired pickup pause. */
   pickupsPaused(): boolean {
     if (this.isPaused()) return true;
-    const { pickupPausedUntil } = this.store.getGovernor();
+    const { pickupPausedUntil, manualPause } = this.store.getGovernor();
+    // Paused from the dashboard: held until someone resumes it.
+    if (manualPause) return true;
     if (pickupPausedUntil === null) return false;
     if (pickupPausedUntil.getTime() > this.now().getTime()) return true;
     this.store.setGovernor({ pickupPausedUntil: null });

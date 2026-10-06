@@ -22,15 +22,19 @@ describe("CiQueue", () => {
     fake.addRun("org/b", "s3", "waiting");
     fake.addRun("org/b", "s4", "completed", "success");
 
-    expect(await new CiQueue(fake, 4).load([a, b])).toEqual({ active: 3, busy: false });
-    expect(await new CiQueue(fake, 3).load([a, b])).toEqual({ active: 3, busy: true });
+    expect(await new CiQueue(fake, () => 4).load([a, b])).toEqual({ active: 3, busy: false });
+    expect(await new CiQueue(fake, () => 3).load([a, b])).toEqual({ active: 3, busy: true });
   });
 
   it("is not busy when the counts can't be read, and warns once until it recovers", async () => {
     const fake = gitea();
     fake.countFailure = true;
     const lines: string[] = [];
-    const queue = new CiQueue(fake, 1, createLogger("info", { write: (line) => lines.push(line) }));
+    const queue = new CiQueue(
+      fake,
+      () => 1,
+      createLogger("info", { write: (line) => lines.push(line) }),
+    );
     expect(await queue.load([a])).toEqual({ active: 0, busy: false });
     await queue.load([a]);
     fake.countFailure = false;

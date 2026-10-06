@@ -45,6 +45,11 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
+# The dashboard: static files served as-is, plus the brand assets it uses.
+COPY web ./web
+COPY assets/brand/web ./assets/brand/web
+COPY assets/brand/svg ./assets/brand/svg
+COPY assets/brand/favicon ./assets/brand/favicon
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \

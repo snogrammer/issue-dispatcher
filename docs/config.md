@@ -1,11 +1,12 @@
 # Configuration
 
 The dispatcher reads environment variables and, optionally, a YAML file named by
-`CONFIG_FILE`. Env values override the file. Everything is validated at startup;
-an invalid value stops the process with a message naming the key and the
-variable it came from.
+`CONFIG_FILE`. Env values override the file, and values saved from the
+[dashboard](dashboard.md#config) override both (file < env < dashboard).
+Everything is validated at startup; an invalid value stops the process with a
+message naming the key and the variable it came from.
 
-Secrets (currently `GITEA_TOKEN`) are accepted **only** from env. Putting them in
+Secrets (`GITEA_TOKEN`, `DASHBOARD_TOKEN`) are accepted **only** from env. Putting them in
 the YAML file is an error. Empty variables count as unset.
 
 ## Environment variables
@@ -45,6 +46,7 @@ the YAML file is an error. Empty variables count as unset.
 | `LOG_LEVEL`                   | `logLevel`                  | `info`                       | `trace`, `debug`, `info`, `warn`, `error`, `fatal`                                                                         |
 | `STATUS_PORT`                 | `status.port`               | `8080`                       | Port for `/healthz` and `/status`; `0` turns the server off                                                                |
 | `STATUS_HOST`                 | `status.host`               | `127.0.0.1`                  | Address to bind; use `0.0.0.0` to reach `/status` from outside the container                                               |
+| `DASHBOARD_TOKEN`             | `dashboard.token`           | unset                        | Lets the [dashboard](dashboard.md) change config and run actions (16+ characters). Unset: read-only. Secret: env only      |
 
 Claude Code authentication (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) is
 not part of the dispatcher's config; it is inherited by the `claude` process.

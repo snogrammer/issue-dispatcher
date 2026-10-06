@@ -1,3 +1,8 @@
 # False positive in history: a dedup-key literal in a test, not a secret.
 # The test now uses a low-entropy value; this commit can't change without a rewrite.
 20709e9abd2e8317ab8624f7df3bcd7855812c28:src/engine/questions.test.ts:generic-api-key:22
+
+# .dev-gitea.env committed by mistake in 422dd65 and removed in the next commit.
+# Its only value is the bot token of a throwaway local Gitea (scripts/dev-gitea.sh)
+# that no longer exists; the file is now gitignored.
+422dd655a3668a254d708e021dc584023eb9c18a:.dev-gitea.env:generic-api-key:2

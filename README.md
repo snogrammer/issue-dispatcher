@@ -79,7 +79,10 @@ docker compose up -d --build
 ```
 
 Then assign an issue to the bot. `docker compose logs -f dispatcher` shows
-what it's doing; `/status` gives a JSON overview ([operations](docs/operations.md)).
+what it's doing; the [web dashboard](docs/dashboard.md) on port 8080 shows
+health, work, runs, costs and live logs, and lets you tune the runtime config
+and pause pickups. `/status` gives the same overview as JSON
+([operations](docs/operations.md)).
 
 To try it without touching a real instance, `scripts/dev-gitea.sh up` starts a
 throwaway local Gitea with a bot user and a demo repo, and runs the dispatcher
@@ -116,6 +119,9 @@ so the container is the sandbox:
   scopes above.
 - The Gitea token is kept out of Claude's environment, process arguments,
   `.git/config` and logs.
+- The dashboard is read-only unless `DASHBOARD_TOKEN` is set, and it can't
+  change identity, paths, credentials or Claude's permission mode. Expose it
+  beyond localhost only behind HTTPS.
 
 Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
