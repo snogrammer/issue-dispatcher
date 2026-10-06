@@ -10,6 +10,8 @@
 #   DISPATCHER_DATA_PATH        host directory for state (SQLite)
 #   DISPATCHER_WORKSPACES_PATH  host directory for repo checkouts
 #   DISPATCHER_MEMORY_LIMIT     container memory limit (default: 4g)
+#   SHARED_NETWORK              existing Docker network shared with Caddy
+#                               (default: caddy_net)
 #
 # The container runs as uid 10001, so create both host directories owned by it
 # before the first deploy:
@@ -46,14 +48,17 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-    networks: [dispatcher]
     # /healthz, /status and the web dashboard listen on 127.0.0.1 inside the
     # container by default.
-    # To open the dashboard from the host, set STATUS_HOST=0.0.0.0 (and
-    # DASHBOARD_TOKEN to allow changes) and uncomment:
+    # To serve the dashboard through Caddy, set STATUS_HOST=0.0.0.0 (and
+    # DASHBOARD_TOKEN to allow changes) and proxy to claude-dispatcher:8080.
+    # To open it from the host directly instead, also uncomment:
     # ports:
     #   - "127.0.0.1:8080:8080"
 
 networks:
-  # Its own bridge network: nothing else on the host shares it.
-  dispatcher: {}
+  # Shared with Caddy so it can proxy to claude-dispatcher:8080. It must already
+  # exist (docker network create caddy_net).
+  default:
+    name: ${SHARED_NETWORK:-caddy_net}
+    external: true

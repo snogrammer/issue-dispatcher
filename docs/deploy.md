@@ -131,7 +131,10 @@ Claude runs project commands without approval prompts
 (`CLAUDE_PERMISSION_MODE=bypassPermissions`), so the container is the sandbox:
 
 - **No Docker socket.** Don't mount it; it would give Claude control of the host.
-- Its own bridge network, a memory limit (`DISPATCHER_MEMORY_LIMIT`, default `4g`).
+- A memory limit (`DISPATCHER_MEMORY_LIMIT`, default `4g`). The Portainer
+  stack joins the shared Caddy network (`SHARED_NETWORK`, default `caddy_net`),
+  so Claude can reach other containers on it; keep that network to services
+  that are safe to expose to it.
 - The Gitea token is never in Claude's environment or in `.git/config`; git
   gets it only while the dispatcher fetches or pushes.
 - Issue and comment text is treated as untrusted input to Claude, but a
@@ -142,7 +145,8 @@ Claude runs project commands without approval prompts
 
 `/healthz`, `/status` and the [dashboard](dashboard.md) listen on
 `127.0.0.1:8080` inside the container (see [operations.md](operations.md)). To
-open the dashboard from the host, set `STATUS_HOST=0.0.0.0` and uncomment the
-`ports:` entry in the compose file. Set `DASHBOARD_TOKEN` to allow config edits
+serve the dashboard through Caddy, set `STATUS_HOST=0.0.0.0` and proxy to
+`claude-dispatcher:8080` on the shared network. To open it from the host
+directly instead, also uncomment the `ports:` entry in the compose file. Set `DASHBOARD_TOKEN` to allow config edits
 and actions, and put it behind HTTPS (a reverse proxy) if it's reachable beyond
 localhost.
