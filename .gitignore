@@ -18,3 +18,5 @@ observability/
 
 # Docker compose secrets
 stack.env
+# Written by scripts/dev-gitea.sh (holds the throwaway bot token)
+.dev-gitea.env
