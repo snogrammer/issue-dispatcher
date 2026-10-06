@@ -1,5 +1,11 @@
 # Operating the dispatcher
 
+## Dashboard
+
+The same server hosts a web dashboard at `/`: health, held work, runs and
+costs, live logs, and the runtime config, which can be edited without a
+restart. See [dashboard.md](dashboard.md).
+
 ## Health and status
 
 A small HTTP server (`STATUS_PORT`, default `8080`, bound to `STATUS_HOST`,
@@ -23,9 +29,11 @@ container.
 ## Logs
 
 One JSON object per line on stdout (`LOG_LEVEL`, default `info`). Each run
-logs its repo, issue, phase, model, effort, outcome and cost. The Gitea token
-and Claude credentials are replaced with `[redacted]` wherever they appear,
-including inside error messages.
+logs its repo, issue, phase, model, effort, outcome and cost. The Gitea token,
+the dashboard token and Claude credentials are replaced with `[redacted]`
+wherever they appear, including inside error messages. The last 1,000 lines
+are also kept in memory for the dashboard's Logs page. Every change made from
+the dashboard is logged with `"dashboard": true`.
 
 ## Startup failures
 

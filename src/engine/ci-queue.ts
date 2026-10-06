@@ -32,7 +32,8 @@ export class CiQueue {
 
   constructor(
     private readonly gitea: CiQueueGitea,
-    private readonly maxActive: number,
+    /** Read on every check, so a change from the dashboard applies at the next poll. */
+    private readonly maxActive: () => number,
     private readonly log: Logger = silentLogger,
   ) {}
 
@@ -58,6 +59,6 @@ export class CiQueue {
         }
       }
     }
-    return { active, busy: active >= this.maxActive };
+    return { active, busy: active >= this.maxActive() };
   }
 }

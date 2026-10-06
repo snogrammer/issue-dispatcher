@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0B1726" />
+    <title>IssueDispatcher</title>
+    <link rel="icon" href="/brand/favicon/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/brand/favicon/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/brand/favicon/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/brand/web/brand-variables.css" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="#/">
+          <img src="/brand/svg/issuedispatcher-wordmark-light.svg" alt="IssueDispatcher" />
+        </a>
+        <nav class="nav" aria-label="Pages">
+          <a href="#/" data-page="overview">Overview</a>
+          <a href="#/work" data-page="work">Work</a>
+          <a href="#/runs" data-page="runs">Runs &amp; costs</a>
+          <a href="#/config" data-page="config">Config</a>
+          <a href="#/logs" data-page="logs">Logs</a>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="health" id="health"><span class="dot"></span><span>Connecting…</span></div>
+          <div class="session" id="session"></div>
+        </div>
+      </aside>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+
+    <dialog id="login" class="dialog">
+      <form id="login-form" method="dialog">
+        <h2>Log in</h2>
+        <p class="muted">
+          Enter the dashboard token (<code>DASHBOARD_TOKEN</code>) to change config and run actions.
+        </p>
+        <label for="login-token">Token</label>
+        <input
+          id="login-token"
+          name="token"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+        <p class="error" id="login-error" hidden></p>
+        <div class="row end">
+          <button type="button" class="ghost" id="login-cancel">Cancel</button>
+          <button type="submit" class="primary">Log in</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

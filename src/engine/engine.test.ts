@@ -417,6 +417,57 @@ describe("CI backpressure", () => {
   });
 });
 
+describe("dashboard controls", () => {
+  it("a manual pause stops pickups but not work in progress, until resumed", async () => {
+    const { gitea, engine, store, runner } = setup({ MAX_CONCURRENT_SESSIONS: "2" });
+    gitea.addIssue(A, { number: 1 });
+    runner.script("hold");
+    await engine.tick();
+    expect(engine.running).toBe(1);
+
+    store.setGovernor({ manualPause: true });
+    gitea.addIssue(B, { number: 7 });
+    await engine.tick();
+    expect(store.activeIssue(B)).toBeNull();
+    expect(engine.running).toBe(1);
+
+    runner.release();
+    await engine.idle();
+    expect(store.getWork(A, 1)?.state).toBe("in-review");
+
+    store.setGovernor({ manualPause: false });
+    await cycle(engine);
+    expect(store.activeIssue(B)).toBe(7);
+  });
+
+  it("reads the CI queue limit live", async () => {
+    const { gitea, engine, store, config } = setup({ CI_MAX_QUEUE: "2" });
+    gitea.addRun(B, "x", "queued");
+    gitea.addRun(B, "y", "in_progress");
+    gitea.addIssue(A, { number: 1 });
+    await cycle(engine);
+    expect(store.activeIssue(A)).toBeNull();
+
+    config.ciMaxQueue = 3;
+    await cycle(engine);
+    expect(store.activeIssue(A)).toBe(1);
+  });
+
+  it("rediscovers repos right away when the repo list changes", async () => {
+    const { engine, config } = setup();
+    await engine.tick();
+    expect(engine.watchedRepos().map((r) => r.fullName)).toEqual([A, B]);
+
+    config.repos = [A];
+    await engine.tick();
+    expect(engine.watchedRepos()).toHaveLength(2); // cached for a few minutes
+
+    engine.configChanged(["repos"]);
+    await engine.tick();
+    expect(engine.watchedRepos().map((r) => r.fullName)).toEqual([A]);
+  });
+});
+
 describe("humans steering", () => {
   it("stops when the bot is unassigned: aborts the run, frees the slot, leaves a note", async () => {
     const { gitea, engine, store, runner } = setup();

@@ -126,6 +126,12 @@ export const configSchema = z
         host: z.string().min(1).default("127.0.0.1"),
       })
       .prefault({}),
+    /** The web dashboard served by the status server; writes need the token. */
+    dashboard: z
+      .strictObject({
+        token: z.string().min(16, "use at least 16 characters").optional(),
+      })
+      .prefault({}),
   })
   .refine((config) => config.repos.length + config.orgs.length > 0, {
     message: "set at least one repo (REPOS) or org (ORGS) to watch",

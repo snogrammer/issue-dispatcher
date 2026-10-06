@@ -55,6 +55,8 @@ export interface Governor {
   pickupPausedUntil: Date | null;
   /** Consecutive rate limits without a known reset time; drives backoff. */
   backoffLevel: number;
+  /** Set from the dashboard: no new issue is picked up until it's cleared. */
+  manualPause: boolean;
 }
 
 export type RunExit = "success" | "error" | "timeout" | "rate_limited" | "aborted";
@@ -95,6 +97,28 @@ export interface CostTotals {
 
 export interface CostSummary extends CostTotals {
   byRepo: (CostTotals & { repo: string })[];
+}
+
+export interface RunFilter {
+  repo?: string | undefined;
+  issue?: number | undefined;
+  phase?: string | undefined;
+  /** A run exit, or "running" for runs that haven't ended. */
+  exit?: string | undefined;
+  model?: string | undefined;
+  /** Only runs with a smaller id (the next page). */
+  before?: number | undefined;
+  limit?: number | undefined;
+}
+
+export interface DailyCost extends CostTotals {
+  /** UTC date, YYYY-MM-DD. */
+  day: string;
+}
+
+export interface ModelCost extends CostTotals {
+  /** Null when the run used the CLI's default model. */
+  model: string | null;
 }
 
 export class SlotOccupiedError extends Error {
@@ -146,6 +170,27 @@ interface RunRow {
 }
 
 const DB_FILE = "dispatcher.db";
+
+/** Aggregate columns shared by the cost queries. */
+const TOTALS = `COUNT(*) AS runs, COALESCE(SUM(cost_usd), 0) AS cost_usd,
+  COALESCE(SUM(input_tokens), 0) AS input_tokens,
+  COALESCE(SUM(output_tokens), 0) AS output_tokens`;
+
+interface TotalsRow {
+  runs: number;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+function toTotals(row: TotalsRow): CostTotals {
+  return {
+    runs: row.runs,
+    costUsd: row.cost_usd,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+  };
+}
 
 export class StateStore {
   private readonly now: () => Date;
@@ -296,6 +341,7 @@ export class StateStore {
       pausedUntil: date("paused_until"),
       pickupPausedUntil: date("pickup_paused_until"),
       backoffLevel: Number(values.get("backoff_level") ?? 0),
+      manualPause: values.get("manual_pause") === "1",
     };
   }
 
@@ -313,6 +359,10 @@ export class StateStore {
       }
       if (patch.backoffLevel !== undefined) {
         this.setGovernorValue("backoff_level", String(patch.backoffLevel));
+      }
+      if (patch.manualPause === true) this.setGovernorValue("manual_pause", "1");
+      if (patch.manualPause === false) {
+        this.db.prepare("DELETE FROM governor WHERE key = 'manual_pause'").run();
       }
     })();
     return this.getGovernor();
@@ -369,6 +419,68 @@ export class StateStore {
             .all(repo, limit)
     ) as RunRow[];
     return rows.map(toRun);
+  }
+
+  /** Runs matching `filter`, most recent first; page with `before` = the last id seen. */
+  listRuns(filter: RunFilter = {}): RunRecord[] {
+    const where: string[] = [];
+    const values: unknown[] = [];
+    const add = (clause: string, value: unknown) => {
+      where.push(clause);
+      values.push(value);
+    };
+    if (filter.repo !== undefined) add("repo = ?", filter.repo);
+    if (filter.issue !== undefined) add("issue = ?", filter.issue);
+    if (filter.phase !== undefined) add("phase = ?", filter.phase);
+    if (filter.exit === "running") where.push("ended_at IS NULL");
+    else if (filter.exit !== undefined) add("exit = ?", filter.exit);
+    if (filter.model !== undefined) add("model = ?", filter.model);
+    if (filter.before !== undefined) add("id < ?", filter.before);
+    const sql = `SELECT * FROM runs ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY id DESC LIMIT ?`;
+    const rows = this.db.prepare(sql).all(...values, filter.limit ?? 50) as RunRow[];
+    return rows.map(toRun);
+  }
+
+  /** Totals per UTC day for runs started at or after `since`, oldest first. */
+  costByDay(since: Date): DailyCost[] {
+    const rows = this.db
+      .prepare(
+        `SELECT substr(started_at, 1, 10) AS day, ${TOTALS}
+         FROM runs WHERE started_at >= ? GROUP BY day ORDER BY day`,
+      )
+      .all(since.toISOString()) as (TotalsRow & { day: string })[];
+    return rows.map((row) => ({ day: row.day, ...toTotals(row) }));
+  }
+
+  /** Totals per model for runs started at or after `since` (all time if omitted), costliest first. */
+  costByModel(since?: Date): ModelCost[] {
+    const rows = this.db
+      .prepare(
+        `SELECT model, ${TOTALS}
+         FROM runs WHERE started_at >= ? GROUP BY model ORDER BY cost_usd DESC`,
+      )
+      .all(since?.toISOString() ?? "") as (TotalsRow & { model: string | null })[];
+    return rows.map((row) => ({ model: row.model, ...toTotals(row) }));
+  }
+
+  // --- Settings -------------------------------------------------------------
+
+  /** Config overrides saved from the dashboard (see config/overrides.ts). */
+  getConfigOverrides(): Record<string, unknown> {
+    const row = this.db
+      .prepare("SELECT value FROM settings WHERE key = 'config_overrides'")
+      .get() as { value: string } | undefined;
+    return row === undefined ? {} : (JSON.parse(row.value) as Record<string, unknown>);
+  }
+
+  setConfigOverrides(overrides: Record<string, unknown>): void {
+    this.db
+      .prepare(
+        `INSERT INTO settings (key, value) VALUES ('config_overrides', ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(JSON.stringify(overrides));
   }
 
   /** Runs, cost and tokens per repo for runs started at or after `since` (all time if omitted). */

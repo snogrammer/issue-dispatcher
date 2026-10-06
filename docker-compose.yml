@@ -33,9 +33,10 @@ services:
       - dispatcher-workspaces:/workspaces
     mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
     networks: [dispatcher]
-    # /healthz and /status listen on 127.0.0.1 inside the container by default.
-    # To reach /status from the host, set STATUS_HOST=0.0.0.0 in .env and
-    # uncomment:
+    # /healthz, /status and the web dashboard listen on 127.0.0.1 inside the
+    # container by default.
+    # To open the dashboard from the host, set STATUS_HOST=0.0.0.0 in .env
+    # (and DASHBOARD_TOKEN to allow changes) and uncomment:
     # ports:
     #   - "127.0.0.1:8080:8080"
 

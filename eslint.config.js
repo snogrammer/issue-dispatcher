@@ -22,5 +22,7 @@ export default tseslint.config(
     },
   },
   { files: ["**/*.js", "**/*.mjs"], ...tseslint.configs.disableTypeChecked },
+  // The dashboard runs in the browser.
+  { files: ["web/**/*.js"], languageOptions: { globals: globals.browser } },
   prettier,
 );

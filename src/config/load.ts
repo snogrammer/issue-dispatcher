@@ -16,24 +16,55 @@ export class ConfigError extends Error {
   override name = "ConfigError";
 }
 
-type Tree = Record<string, unknown>;
+export type Tree = Record<string, unknown>;
 
 export interface LoadConfigOptions {
   env?: NodeJS.ProcessEnv;
   readFile?: (path: string) => string;
+  /** Dashboard overrides (see overrides.ts), applied on top of env. */
+  overrides?: Readonly<Record<string, unknown>>;
+}
+
+/** The raw inputs config is built from, kept so it can be rebuilt with new overrides. */
+export interface ConfigLayers {
+  configFile: string | undefined;
+  file: Tree;
+  env: Tree;
 }
 
 export function loadConfig(options: LoadConfigOptions = {}): Config {
+  return buildConfig(readConfigLayers(options), options.overrides ?? {});
+}
+
+export function readConfigLayers(options: LoadConfigOptions = {}): ConfigLayers {
   const env = options.env ?? process.env;
   const readFile = options.readFile ?? ((file: string) => readFileSync(file, "utf8"));
 
   const configFile = nonEmpty(env[CONFIG_FILE_VAR]);
   const fromFile = configFile === undefined ? {} : readConfigFile(configFile, readFile);
   rejectSecretsInFile(fromFile, configFile ?? "");
+  return { configFile, file: fromFile, env: configFromEnv(env) };
+}
 
-  const result = configSchema.safeParse(deepMerge(fromFile, configFromEnv(env)));
+/**
+ * Validate file < env < overrides. Each override replaces the whole value at
+ * its key (so an edited routing table or repo list is taken as a whole), and
+ * `null` unsets an optional key.
+ */
+export function buildConfig(
+  layers: ConfigLayers,
+  overrides: Readonly<Record<string, unknown>>,
+): Config {
+  // A copy: deepMerge shares unmerged subtrees with the layers, which must stay intact.
+  const tree = structuredClone(deepMerge(layers.file, layers.env));
+  for (const [key, value] of Object.entries(overrides)) {
+    const path = key.split(".");
+    if (value === null) deleteAt(tree, path);
+    else setAt(tree, path, structuredClone(value));
+  }
+  const result = configSchema.safeParse(tree);
   if (!result.success) {
-    throw new ConfigError(formatIssues(result.error.issues, configFile));
+    throw new ConfigError(formatIssues(result.error.issues, layers.configFile));
   }
   return result.data;
 }
@@ -112,7 +143,7 @@ function deepMerge(base: Tree, over: Tree): Tree {
   return out;
 }
 
-function setAt(tree: Tree, path: readonly string[], value: unknown): void {
+export function setAt(tree: Tree, path: readonly string[], value: unknown): void {
   let node = tree;
   for (const key of path.slice(0, -1)) {
     const next = node[key];
@@ -122,7 +153,7 @@ function setAt(tree: Tree, path: readonly string[], value: unknown): void {
   if (last !== undefined) node[last] = value;
 }
 
-function getAt(tree: Tree, path: readonly string[]): unknown {
+export function getAt(tree: Tree, path: readonly string[]): unknown {
   let node: unknown = tree;
   for (const key of path) {
     if (!isTree(node)) return undefined;
@@ -131,7 +162,13 @@ function getAt(tree: Tree, path: readonly string[]): unknown {
   return node;
 }
 
-function isTree(value: unknown): value is Tree {
+function deleteAt(tree: Tree, path: readonly string[]): void {
+  const parent = getAt(tree, path.slice(0, -1));
+  const key = path.at(-1);
+  if (isTree(parent) && key !== undefined) Reflect.deleteProperty(parent, key);
+}
+
+export function isTree(value: unknown): value is Tree {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

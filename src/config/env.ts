@@ -48,6 +48,7 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "LOG_LEVEL", path: ["logLevel"], kind: "string" },
   { name: "STATUS_PORT", path: ["status", "port"], kind: "int" },
   { name: "STATUS_HOST", path: ["status", "host"], kind: "string" },
+  { name: "DASHBOARD_TOKEN", path: ["dashboard", "token"], kind: "string", secret: true },
 ];
 
 /** Path to an optional YAML file merged underneath env values. */

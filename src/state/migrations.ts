@@ -59,4 +59,14 @@ export const MIGRATIONS: readonly string[] = [
   -- carries that PR's original commits (up to this SHA) and needs a rebase.
   ALTER TABLE issue_work ADD COLUMN rebase_from TEXT;
   `,
+  `
+  -- Small documents the dispatcher keeps for itself, e.g. dashboard config overrides.
+  CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- Run history and cost charts filter by start time.
+  CREATE INDEX runs_by_start ON runs (started_at);
+  `,
 ];

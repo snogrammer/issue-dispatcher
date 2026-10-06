@@ -176,6 +176,7 @@ describe("governor", () => {
       pausedUntil: null,
       pickupPausedUntil: null,
       backoffLevel: 0,
+      manualPause: false,
     });
   });
 
@@ -189,12 +190,61 @@ describe("governor", () => {
       pausedUntil: until,
       pickupPausedUntil: pickup,
       backoffLevel: 2,
+      manualPause: false,
     });
     expect(store.setGovernor({ pausedUntil: null })).toEqual({
       pausedUntil: null,
       pickupPausedUntil: pickup,
       backoffLevel: 2,
+      manualPause: false,
     });
+  });
+
+  it("holds the dashboard's manual pause until it is cleared", () => {
+    const store = StateStore.inMemory();
+    expect(store.setGovernor({ manualPause: true }).manualPause).toBe(true);
+    expect(store.setGovernor({ backoffLevel: 1 }).manualPause).toBe(true);
+    expect(store.setGovernor({ manualPause: false }).manualPause).toBe(false);
+  });
+});
+
+describe("settings", () => {
+  it("round-trips the dashboard config overrides", () => {
+    const store = StateStore.inMemory();
+    expect(store.getConfigOverrides()).toEqual({});
+    store.setConfigOverrides({ pollIntervalS: 90, routing: { phases: {} } });
+    store.setConfigOverrides({ pollIntervalS: 120 });
+    expect(store.getConfigOverrides()).toEqual({ pollIntervalS: 120 });
+  });
+});
+
+describe("run history", () => {
+  it("lists runs by filter and totals cost per day and model", () => {
+    const clock = { now: new Date("2026-03-01T23:00:00Z") };
+    const store = StateStore.inMemory({ now: () => clock.now });
+    const a = store.startRun({ repo: "org/a", issue: 1, phase: "implement", model: "opus" });
+    store.finishRun(a, { exit: "success", costUsd: 2, inputTokens: 10, outputTokens: 1 });
+    clock.now = new Date("2026-03-02T01:00:00Z");
+    const b = store.startRun({ repo: "org/a", issue: 1, phase: "fix-ci" });
+    store.finishRun(b, { exit: "error", costUsd: 0.5, error: "boom" });
+    store.startRun({ repo: "org/b", issue: 2, phase: "implement", model: "opus" });
+
+    expect(store.listRuns().map((r) => r.id)).toEqual([3, 2, 1]);
+    expect(store.listRuns({ repo: "org/a", issue: 1, exit: "error" }).map((r) => r.id)).toEqual([
+      2,
+    ]);
+    expect(store.listRuns({ exit: "running" }).map((r) => r.id)).toEqual([3]);
+    expect(store.listRuns({ model: "opus", before: 3 }).map((r) => r.id)).toEqual([1]);
+    expect(store.listRuns({ limit: 1 }).map((r) => r.id)).toEqual([3]);
+
+    expect(store.costByDay(new Date("2026-03-01T00:00:00Z"))).toEqual([
+      { day: "2026-03-01", runs: 1, costUsd: 2, inputTokens: 10, outputTokens: 1 },
+      { day: "2026-03-02", runs: 2, costUsd: 0.5, inputTokens: 0, outputTokens: 0 },
+    ]);
+    expect(store.costByModel()).toEqual([
+      { model: "opus", runs: 2, costUsd: 2, inputTokens: 10, outputTokens: 1 },
+      { model: null, runs: 1, costUsd: 0.5, inputTokens: 0, outputTokens: 0 },
+    ]);
   });
 });
 

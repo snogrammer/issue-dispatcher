@@ -140,6 +140,9 @@ Claude runs project commands without approval prompts
 
 ## Status
 
-`/healthz` and `/status` listen on `127.0.0.1:8080` inside the container (see
-[operations.md](operations.md)). To reach `/status` from the host, set
-`STATUS_HOST=0.0.0.0` and uncomment the `ports:` entry in the compose file.
+`/healthz`, `/status` and the [dashboard](dashboard.md) listen on
+`127.0.0.1:8080` inside the container (see [operations.md](operations.md)). To
+open the dashboard from the host, set `STATUS_HOST=0.0.0.0` and uncomment the
+`ports:` entry in the compose file. Set `DASHBOARD_TOKEN` to allow config edits
+and actions, and put it behind HTTPS (a reverse proxy) if it's reachable beyond
+localhost.

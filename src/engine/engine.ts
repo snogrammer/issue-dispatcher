@@ -131,6 +131,9 @@ export class Engine {
   private lastTickAt: Date | null = null;
   private timer: NodeJS.Timeout | undefined;
   private currentTick: Promise<void> = Promise.resolve();
+  private ticking = false;
+  /** pollNow() was called during a poll: start the next one right after. */
+  private pollRequested = false;
 
   constructor(private readonly deps: EngineDeps) {
     this.config = deps.config;
@@ -142,7 +145,7 @@ export class Engine {
     this.newSessionId = deps.newSessionId ?? randomUUID;
     this.questions = new QuestionDesk(deps.config, deps.gitea, this.log);
     this.governor = new Governor(deps.store, deps.config.rateLimit, this.now, this.log);
-    this.ciQueue = new CiQueue(deps.gitea, deps.config.ciMaxQueue, this.log);
+    this.ciQueue = new CiQueue(deps.gitea, () => this.config.ciMaxQueue, this.log);
   }
 
   /** Number of Claude runs in progress. */
@@ -238,10 +241,39 @@ export class Engine {
   private schedule(delayMs: number): void {
     if (this.stopping) return;
     this.timer = setTimeout(() => {
+      this.ticking = true;
       this.currentTick = this.tick().finally(() => {
-        this.schedule(this.config.pollIntervalS * 1000);
+        this.ticking = false;
+        const again = this.pollRequested;
+        this.pollRequested = false;
+        this.schedule(again ? 0 : this.config.pollIntervalS * 1000);
       });
     }, delayMs);
+  }
+
+  /** Poll now instead of waiting out the interval (dashboard, config changes). */
+  pollNow(): void {
+    if (this.stopping || this.startedAt === null) return;
+    if (this.ticking) {
+      this.pollRequested = true;
+      return;
+    }
+    clearTimeout(this.timer);
+    this.schedule(0);
+  }
+
+  /**
+   * The shared config was edited in place (see config/overrides.ts). Most
+   * keys are read on use; repo lists and model labels need the repos
+   * rediscovered and labels re-checked, and a new interval needs a fresh timer.
+   */
+  configChanged(keys: readonly string[]): void {
+    if (keys.some((key) => key === "repos" || key === "orgs" || key === "routing")) {
+      this.reposRefreshedAt = Number.NEGATIVE_INFINITY;
+      this.labelled.clear();
+    }
+    this.log.info("config changed", { keys });
+    this.pollNow();
   }
 
   private async refreshRepos(): Promise<void> {

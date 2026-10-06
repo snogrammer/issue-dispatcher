@@ -2,21 +2,29 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { runClaude, runnerOptionsFromConfig } from "./claude/runner.js";
-import { ConfigError, loadConfig, redactConfig } from "./config/load.js";
+import {
+  buildConfig,
+  ConfigError,
+  readConfigLayers,
+  redactConfig,
+  type ConfigLayers,
+} from "./config/load.js";
+import { ConfigManager, validateOverrides, type Overrides } from "./config/overrides.js";
 import type { Config } from "./config/schema.js";
 import { Engine } from "./engine/engine.js";
 import { prLifecycle } from "./engine/pr-lifecycle.js";
 import { GiteaClient } from "./gitea/client.js";
 import { GiteaError } from "./gitea/http.js";
-import { createLogger, type Logger } from "./log.js";
+import { startStatusServer } from "./http/server.js";
+import { createLogger, LogBuffer, type Logger } from "./log.js";
 import { StateStore } from "./state/store.js";
-import { startStatusServer } from "./status.js";
 import { GitError, Workspace } from "./workspace/git.js";
 
 /**
  * Process entrypoint: load config (failing fast with a readable message),
- * wire the real Gitea client, state store, workspaces and Claude runner into
- * the engine, and stop gracefully on SIGINT/SIGTERM so in-flight work is
+ * layer the dashboard's saved overrides on top, wire the real Gitea client,
+ * state store, workspaces and Claude runner into the engine, serve the
+ * dashboard, and stop gracefully on SIGINT/SIGTERM so in-flight work is
  * resumed on the next start.
  */
 
@@ -26,10 +34,12 @@ export interface App {
   stop(): Promise<void>;
 }
 
-export function createApp(config: Config, log: Logger): App {
+export function createApp(
+  config: Config,
+  log: Logger,
+  store: StateStore = StateStore.open(config.paths.dataDir),
+): App {
   const gitea = new GiteaClient({ baseUrl: config.gitea.url, token: config.gitea.token });
-  const store = StateStore.open(config.paths.dataDir);
-  const runner = runnerOptionsFromConfig(config);
   const engine = new Engine({
     config,
     gitea,
@@ -48,7 +58,8 @@ export function createApp(config: Config, log: Logger): App {
         },
         repo.ref,
       ),
-    runClaude: (request) => runClaude(runner, request),
+    // Options are read per run so dashboard changes (timeout, budget) apply to the next one.
+    runClaude: (request) => runClaude(runnerOptionsFromConfig(config), request),
   });
   return {
     engine,
@@ -61,13 +72,43 @@ export function createApp(config: Config, log: Logger): App {
 }
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
-  const config = loadConfig({ env });
-  const log = createLogger(config.logLevel, {
-    secrets: [config.gitea.token, env.CLAUDE_CODE_OAUTH_TOKEN, env.ANTHROPIC_API_KEY],
+  const layers = readConfigLayers({ env });
+  const base = buildConfig(layers, {});
+  const logs = new LogBuffer();
+  const log = createLogger(base.logLevel, {
+    secrets: [
+      base.gitea.token,
+      base.dashboard.token,
+      env.CLAUDE_CODE_OAUTH_TOKEN,
+      env.ANTHROPIC_API_KEY,
+    ],
+    sink: (line) => {
+      logs.push(line);
+    },
   });
-  log.info("IssueDispatcher starting", { config: redactConfig(config) });
 
-  const app = createApp(config, log);
+  // Paths aren't editable from the dashboard, so the base config finds the store.
+  const store = StateStore.open(base.paths.dataDir);
+  const { config, overrides } = withSavedOverrides(layers, base, store.getConfigOverrides(), log);
+  log.setLevel(config.logLevel);
+  log.info("IssueDispatcher starting", {
+    config: redactConfig(config),
+    dashboardOverrides: Object.keys(overrides),
+  });
+
+  const app = createApp(config, log, store);
+  const configManager = new ConfigManager({
+    layers,
+    live: config,
+    overrides,
+    save: (next) => {
+      store.setConfigOverrides(next);
+    },
+    onChange: (changed) => {
+      if (changed.includes("logLevel")) log.setLevel(config.logLevel);
+      app.engine.configChanged(changed);
+    },
+  });
   // Up before the first poll, so a container healthcheck sees startup progress.
   const server =
     config.status.port === 0
@@ -77,8 +118,18 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
           store: app.store,
           snapshot: () => app.engine.snapshot(),
           version: packageVersion(),
+          configManager,
+          control: app.engine,
+          logs,
+          log,
         });
-  if (server) log.info("status server listening", { host: config.status.host, port: server.port });
+  if (server) {
+    log.info("status server and dashboard listening", {
+      host: config.status.host,
+      port: server.port,
+      dashboardWrites: config.dashboard.token !== undefined,
+    });
+  }
 
   let stopping = false;
   const shutdown = (signal: string) => {
@@ -105,6 +156,28 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   }
   log.info("watching repos", { repos: app.engine.watchedRepos().map((repo) => repo.fullName) });
   return app;
+}
+
+/**
+ * Apply the overrides saved from the dashboard. If they no longer validate
+ * (env changed underneath them, or a newer build tightened a limit), start
+ * without them rather than refusing to start: the dashboard can fix them.
+ */
+function withSavedOverrides(
+  layers: ConfigLayers,
+  base: Config,
+  saved: Overrides,
+  log: Logger,
+): { config: Config; overrides: Overrides } {
+  if (Object.keys(saved).length === 0) return { config: base, overrides: {} };
+  try {
+    const overrides = validateOverrides(saved);
+    return { config: buildConfig(layers, overrides), overrides };
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    log.warn("ignoring saved dashboard config; it is no longer valid", { error });
+    return { config: base, overrides: {} };
+  }
 }
 
 /** The version from package.json (next to dist/ at runtime), or "unknown". */

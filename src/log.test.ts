@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createLogger } from "./log.js";
+import { createLogger, LogBuffer } from "./log.js";
 
 describe("createLogger", () => {
   it("writes JSON lines at or above the level, with bound and per-call fields", () => {
@@ -35,5 +35,42 @@ describe("secret redaction", () => {
     expect(lines[0]).toContain("push failed for [redacted]");
     expect(lines[0]).toContain("401 with header token [redacted]");
     expect(lines[0]).toContain("short stays");
+  });
+});
+
+describe("runtime level and log buffer", () => {
+  it("changes the level for loggers handed out earlier", () => {
+    const lines: string[] = [];
+    const root = createLogger("info", { write: (line) => lines.push(line) });
+    const child = root.child({ repo: "org/a" });
+    child.debug("hidden");
+    root.setLevel("debug");
+    child.debug("shown");
+    root.setLevel("error");
+    child.warn("hidden too");
+    expect(lines.map((line) => (JSON.parse(line) as { msg: string }).msg)).toEqual(["shown"]);
+  });
+
+  it("feeds the buffer redacted lines and keeps only the newest", () => {
+    const buffer = new LogBuffer(2);
+    const seen: string[] = [];
+    const unsubscribe = buffer.subscribe((line) => seen.push(line));
+    const log = createLogger("info", {
+      write: () => undefined,
+      sink: (line) => {
+        buffer.push(line);
+      },
+      secrets: ["dashboard-secret-abc"],
+    });
+    log.info("one");
+    log.info("token dashboard-secret-abc");
+    unsubscribe();
+    log.info("three");
+
+    const recent = buffer.recent();
+    expect(recent).toHaveLength(2);
+    expect(recent.join("\n")).not.toContain("dashboard-secret-abc");
+    expect(recent[1]).toContain("three");
+    expect(seen).toHaveLength(2);
   });
 });

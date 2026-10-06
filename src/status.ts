@@ -1,12 +1,10 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-
 import type { Config } from "./config/schema.js";
 import type { EngineSnapshot } from "./engine/engine.js";
 import type { StateStore } from "./state/store.js";
 
 /**
- * A tiny read-only HTTP server for operating the dispatcher:
+ * What the status server (src/http/server.ts) reports for operating the
+ * dispatcher:
  *
  * - `GET /healthz`: 200 while the poll loop is alive, 503 once it hasn't
  *   finished a pass in 3× POLL_INTERVAL_S (a hung API call or a wedged loop).
@@ -14,8 +12,8 @@ import type { StateStore } from "./state/store.js";
  * - `GET /status`: what it's doing: watched repos, each held issue and its
  *   state, runs in progress, usage-limit and CI pauses, recent runs and cost.
  *
- * It exposes repo names, issue numbers and costs, never tokens, and binds to
- * 127.0.0.1 unless STATUS_HOST says otherwise.
+ * It exposes repo names, issue numbers and costs, never tokens. The
+ * dashboard's overview page is built from the same `/status` document.
  */
 
 export interface StatusDeps {
@@ -74,6 +72,7 @@ export function status(deps: StatusDeps, processStartedAt: Date): Record<string,
       usageLimitUntil: governor.pausedUntil?.toISOString() ?? null,
       pickupsUntil: governor.pickupPausedUntil?.toISOString() ?? null,
       backoffLevel: governor.backoffLevel,
+      manual: governor.manualPause,
       ciBusy: snapshot.ciBusy,
     },
     costs: {
@@ -94,59 +93,5 @@ export function status(deps: StatusDeps, processStartedAt: Date): Record<string,
       costUsd: run.costUsd ?? null,
       error: run.error ?? null,
     })),
-  };
-}
-
-export interface StatusServer {
-  /** The port actually bound (tests ask for 0 to get a free one). */
-  port: number;
-  close(): Promise<void>;
-}
-
-/** Start the server; resolves once listening. `port` overrides the configured one (tests). */
-export async function startStatusServer(
-  deps: StatusDeps,
-  port: number = deps.config.status.port,
-): Promise<StatusServer> {
-  const processStartedAt = (deps.now ?? (() => new Date()))();
-  const server: Server = createServer((request, response) => {
-    const send = (code: number, body: unknown) => {
-      response.writeHead(code, { "content-type": "application/json; charset=utf-8" });
-      response.end(`${JSON.stringify(body, null, 2)}\n`);
-    };
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      send(405, { error: "method not allowed" });
-      return;
-    }
-    const path = (request.url ?? "/").split("?")[0];
-    try {
-      if (path === "/healthz") {
-        const result = health(deps, processStartedAt);
-        send(result.ok ? 200 : 503, result);
-      } else if (path === "/status") {
-        send(200, status(deps, processStartedAt));
-      } else {
-        send(404, { error: "not found", endpoints: ["/healthz", "/status"] });
-      }
-    } catch (error) {
-      send(500, { error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, deps.config.status.host, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  return {
-    port: (server.address() as AddressInfo).port,
-    close: () =>
-      new Promise((resolve, reject) => {
-        server.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      }),
   };
 }
