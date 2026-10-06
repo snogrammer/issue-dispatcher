@@ -67,6 +67,25 @@ describe("applyStreamLine", () => {
     expect(state.rateLimit).toEqual({ status: "rejected", resetsAt: new Date(1791255600_000) });
   });
 
+  it("reads per-window usage", () => {
+    const state = parse({
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "allowed",
+        resetsAt: 1791255600,
+        unifiedWindows: {
+          five_hour: { utilization: 0.05, resetsAt: 1791255600 },
+          seven_day: { utilization: 0.36, resetsAt: 1791518400 },
+          broken: { utilization: "high" },
+        },
+      },
+    });
+    expect(state.rateLimit?.windows).toEqual([
+      { name: "five_hour", utilization: 0.05, resetsAt: new Date(1791255600_000) },
+      { name: "seven_day", utilization: 0.36, resetsAt: new Date(1791518400_000) },
+    ]);
+  });
+
   it("ignores rate-limit events with an unknown status", () => {
     expect(
       parse({ type: "rate_limit_event", rate_limit_info: { status: "weird" } }).rateLimit,

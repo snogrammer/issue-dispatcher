@@ -21,6 +21,11 @@ export interface RateLimitInfo {
   resetsAt?: Date;
   type?: string;
   utilization?: number;
+  /**
+   * Usage per subscription window (five_hour, seven_day, …) when the CLI
+   * reports it (`unifiedWindows`, seen on 2.1.289). Utilization is 0..1.
+   */
+  windows?: { name: string; utilization: number; resetsAt: Date }[];
 }
 
 export interface ResultMessage {
@@ -73,15 +78,25 @@ export function applyStreamLine(state: StreamState, line: string): void {
 }
 
 function parseRateLimit(info: Record<string, unknown>): RateLimitInfo | undefined {
-  const { status, resetsAt, rateLimitType, utilization } = info;
+  const { status, resetsAt, rateLimitType, utilization, unifiedWindows } = info;
   if (status !== "allowed" && status !== "allowed_warning" && status !== "rejected") {
     return undefined;
   }
+  const windows = isRecord(unifiedWindows)
+    ? Object.entries(unifiedWindows).flatMap(([name, window]) =>
+        isRecord(window) &&
+        typeof window.utilization === "number" &&
+        typeof window.resetsAt === "number"
+          ? [{ name, utilization: window.utilization, resetsAt: epochToDate(window.resetsAt) }]
+          : [],
+      )
+    : [];
   return {
     status,
     ...(typeof resetsAt === "number" ? { resetsAt: epochToDate(resetsAt) } : {}),
     ...(typeof rateLimitType === "string" ? { type: rateLimitType } : {}),
     ...(typeof utilization === "number" ? { utilization } : {}),
+    ...(windows.length > 0 ? { windows } : {}),
   };
 }
 

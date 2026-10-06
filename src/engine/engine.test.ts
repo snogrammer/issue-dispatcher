@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { A, B, cycle, FakeWorkspace, report, setup } from "../../test/helpers/engine-fakes.js";
+import type { ClaudeRunResult, RunRequest } from "../claude/runner.js";
 import { Engine } from "./engine.js";
+import { prLifecycle } from "./pr-lifecycle.js";
 
 describe("startup", () => {
   it("bootstraps labels and discovers org repos, skipping archived and empty ones", async () => {
@@ -205,6 +207,87 @@ describe("rate limits", () => {
     await cycle(engine);
     expect(runner.requests[1]).toMatchObject({ issue: 1, resumeSessionId: "session-1" });
     expect(store.getGovernor().pausedUntil).toBeNull();
+  });
+});
+
+describe("usage limits", () => {
+  it("backs off without a reset time and comments once on the paused issue", async () => {
+    const { gitea, engine, store, runner, clock } = setup();
+    gitea.addIssue(A, { number: 1 });
+    const limited = (request: RunRequest): ClaudeRunResult => ({
+      kind: "rate_limited",
+      sessionId: request.resumeSessionId ?? request.sessionId ?? "",
+      stderrTail: "",
+      error: "Claude AI usage limit reached",
+    });
+    runner.script(limited, limited);
+
+    await cycle(engine);
+    expect(store.getGovernor().pausedUntil).toEqual(new Date("2026-06-01T00:15:00Z"));
+    expect(gitea.commentsOn(A, 1).at(-1)).toBe(
+      "Paused: Claude's usage limit was reached. Work continues after 2026-06-01T00:15:00.000Z.",
+    );
+
+    clock.now = new Date("2026-06-01T00:15:00Z");
+    await cycle(engine);
+    expect(store.getGovernor().pausedUntil).toEqual(new Date("2026-06-01T00:45:00Z"));
+    expect(gitea.commentsOn(A, 1).filter((c) => c.startsWith("Paused:"))).toHaveLength(2);
+
+    clock.now = new Date("2026-06-01T00:45:00Z");
+    await cycle(engine);
+    expect(runner.requests).toHaveLength(3);
+    expect(store.getGovernor().backoffLevel).toBe(0);
+    expect(gitea.labelNames(A, 1)).toEqual(["claude:in-review"]);
+  });
+
+  it("near the limit, finishes work in progress but picks up nothing new", async () => {
+    const { gitea, engine, store, runner, clock } = setup(
+      { MAX_CONCURRENT_SESSIONS: "2" },
+      (deps) => prLifecycle(deps),
+    );
+    gitea.addIssue(A, { number: 1 });
+    runner.script((request) => ({
+      kind: "success",
+      sessionId: request.sessionId ?? "",
+      stderrTail: "",
+      report: report(1),
+      rateLimit: {
+        status: "allowed_warning",
+        resetsAt: new Date("2026-06-01T03:00:00Z"),
+        utilization: 0.93,
+      },
+    }));
+    await cycle(engine); // implement → PR #2, and the CLI warns
+    expect(store.getGovernor().pickupPausedUntil).toEqual(new Date("2026-06-01T03:00:00Z"));
+
+    gitea.addIssue(B, { number: 7 });
+    gitea.setStatus("sha-1", "failure");
+    await cycle(engine);
+    // The issue in progress still gets its fix round; the new issue waits.
+    expect(runner.requests.map((r) => [r.issue, r.phase])).toEqual([
+      [1, "implement"],
+      [1, "fix-ci"],
+    ]);
+    expect(store.activeIssue(B)).toBeNull();
+
+    clock.now = new Date("2026-06-01T03:00:00Z");
+    await cycle(engine);
+    expect(store.activeIssue(B)).toBe(7);
+  });
+
+  it("doesn't count a fix round cut off by the limit", async () => {
+    const { gitea, engine, store, runner, clock } = setup({}, (deps) => prLifecycle(deps));
+    gitea.addIssue(A, { number: 1 });
+    runner.script("success", "rate_limited");
+    await cycle(engine);
+    gitea.setStatus("sha-1", "failure");
+    await cycle(engine);
+    expect(store.getWork(A, 1)?.fixAttempts).toBe(0);
+
+    clock.now = new Date("2026-06-01T05:00:01Z");
+    await cycle(engine);
+    expect(runner.requests.at(-1)).toMatchObject({ phase: "fix-ci", resumeSessionId: "session-1" });
+    expect(store.getWork(A, 1)?.fixAttempts).toBe(1);
   });
 });
 
