@@ -65,4 +65,21 @@ describe("resolveRepos", () => {
       { name: "team/new", reason: "empty", ref: { owner: "team", name: "new" } },
     ]);
   });
+
+  it("skips repos with issues turned off, since nothing can be assigned there", async () => {
+    const gitea = new FakeGitea("bot");
+    gitea.addRepo("team/code-only", { hasIssues: false });
+    gitea.addRepo("team/live");
+
+    const { repos, skipped } = await resolveRepos({ repos: [], orgs: ["team"] }, gitea);
+
+    expect(repos.map((repo) => repo.fullName)).toEqual(["team/live"]);
+    expect(skipped).toEqual([
+      {
+        name: "team/code-only",
+        reason: "issues disabled",
+        ref: { owner: "team", name: "code-only" },
+      },
+    ]);
+  });
 });

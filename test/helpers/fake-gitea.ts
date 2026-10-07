@@ -56,6 +56,8 @@ export class FakeGitea implements EngineGitea {
   mergeFailure: { status: number; message: string } | undefined;
   /** Make countWorkflowRuns fail. */
   countFailure = false;
+  /** Repos whose label calls fail (e.g. a token without push access). */
+  readonly labelFailures = new Set<string>();
   private nextId = 1;
 
   constructor(private readonly botLogin: string) {}
@@ -65,6 +67,7 @@ export class FakeGitea implements EngineGitea {
     options: {
       archived?: boolean;
       empty?: boolean;
+      hasIssues?: boolean;
       defaultBranch?: string;
       mergeStyle?: string;
     } = {},
@@ -79,6 +82,7 @@ export class FakeGitea implements EngineGitea {
       default_merge_style: options.mergeStyle ?? "merge",
       archived: options.archived ?? false,
       empty: options.empty ?? false,
+      has_issues: options.hasIssues ?? true,
     });
     this.issues.set(fullName, new Map());
     this.labels.set(fullName, []);
@@ -244,6 +248,9 @@ export class FakeGitea implements EngineGitea {
     ref: RepoRef,
     filter: { state?: "open" | "closed" | "all"; labels?: string[]; assignee?: string } = {},
   ): Promise<Issue[]> {
+    if (this.repos.get(key(ref))?.has_issues === false) {
+      return Promise.reject(notFound("GET", `/repos/${key(ref)}/issues`));
+    }
     const state = filter.state ?? "open";
     const issues = [...this.repoIssues(key(ref)).values()]
       .filter((issue) => state === "all" || issue.state === state)
@@ -303,6 +310,9 @@ export class FakeGitea implements EngineGitea {
   }
 
   listLabels(ref: RepoRef): Promise<Label[]> {
+    if (this.labelFailures.has(key(ref))) {
+      return Promise.reject(new GiteaError("GET", `/repos/${key(ref)}/labels`, 403, "forbidden"));
+    }
     return Promise.resolve([...(this.labels.get(key(ref)) ?? [])]);
   }
 

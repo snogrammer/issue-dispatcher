@@ -24,6 +24,8 @@ export interface Repository {
   default_merge_style?: string;
   archived: boolean;
   empty: boolean;
+  /** False when the repo's issue tracker is turned off: its /issues endpoints 404. */
+  has_issues?: boolean;
   permissions?: { admin: boolean; push: boolean; pull: boolean };
 }
 

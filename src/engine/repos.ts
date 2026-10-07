@@ -4,7 +4,8 @@ import type { MergeStyle, RepoRef, Repository } from "../gitea/types.js";
 
 /**
  * The concrete repos to watch: every repo listed in REPOS plus every repo in
- * the ORGS, minus archived and empty ones (nothing to work on).
+ * the ORGS, minus archived and empty ones (nothing to work on) and ones with
+ * issues turned off (nothing to be assigned).
  */
 
 export interface WatchedRepo {
@@ -60,7 +61,9 @@ export async function resolveRepos(
     const ref = { owner: repo.owner.login, name: repo.name };
     if (repo.archived) skipped.push({ name: repo.full_name, reason: "archived", ref });
     else if (repo.empty) skipped.push({ name: repo.full_name, reason: "empty", ref });
-    else {
+    else if (repo.has_issues === false) {
+      skipped.push({ name: repo.full_name, reason: "issues disabled", ref });
+    } else {
       repos.push({
         ref,
         fullName: repo.full_name,

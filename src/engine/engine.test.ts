@@ -26,6 +26,56 @@ describe("startup", () => {
     expect(gitea.labels.get("team/live")?.map((l) => l.name)).toContain("claude:working");
     expect(gitea.labels.get("team/old")).toEqual([]);
   });
+
+  it("starts when an org repo has issues turned off", async () => {
+    const { gitea, config, store, runner } = setup({ REPOS: A, ORGS: "team" });
+    gitea.addRepo("team/code-only", { hasIssues: false });
+    const engine = new Engine({
+      config,
+      gitea,
+      store,
+      workspace: () => new FakeWorkspace(),
+      runClaude: runner.run,
+    });
+
+    await engine.start();
+    await engine.stop();
+
+    expect(engine.watchedRepos().map((r) => r.fullName)).toEqual([A]);
+    expect(engine.snapshot().skipped).toEqual([
+      { name: "team/code-only", reason: "issues disabled" },
+    ]);
+  });
+
+  it("starts and skips a repo whose labels can't be set up, then retries it", async () => {
+    const { gitea, config, store, runner, clock } = setup({ REPOS: `${A},team/locked` });
+    gitea.addRepo("team/locked");
+    gitea.labelFailures.add("team/locked");
+    const engine = new Engine({
+      config,
+      gitea,
+      store,
+      workspace: () => new FakeWorkspace(),
+      runClaude: runner.run,
+      now: () => clock.now,
+    });
+
+    await engine.start();
+    await engine.stop();
+
+    expect(engine.watchedRepos().map((r) => r.fullName)).toEqual([A]);
+    expect(engine.snapshot().skipped).toEqual([
+      {
+        name: "team/locked",
+        reason: "label setup failed: GET /repos/team/locked/labels failed (403): forbidden",
+      },
+    ]);
+
+    gitea.labelFailures.delete("team/locked");
+    clock.now = new Date(clock.now.getTime() + 10 * 60_000);
+    await engine.tick();
+    expect(engine.watchedRepos().map((r) => r.fullName)).toEqual([A, "team/locked"]);
+  });
 });
 
 describe("skipped repos", () => {

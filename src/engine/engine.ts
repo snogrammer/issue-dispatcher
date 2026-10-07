@@ -201,7 +201,14 @@ export class Engine {
       botUsername: this.config.gitea.botUsername,
       labelPrefix: this.config.labelPrefix,
     });
-    this.log.info("state rebuilt from Gitea", { ...report });
+    const { failed, ...rebuilt } = report;
+    this.log.info("state rebuilt from Gitea", { ...rebuilt });
+    for (const { repo, error } of failed) {
+      this.log.warn("could not rebuild repo state from Gitea; keeping the stored state", {
+        repo,
+        error,
+      });
+    }
     for (const conflict of report.conflicts) {
       this.log.warn("several issues carry state labels; working on the oldest", { ...conflict });
     }
@@ -288,18 +295,30 @@ export class Engine {
 
   private async refreshRepos(): Promise<void> {
     if (this.now().getTime() - this.reposRefreshedAt < REPO_REFRESH_MS) return;
-    const { repos, skipped } = await resolveRepos(this.config, this.gitea);
+    const resolved = await resolveRepos(this.config, this.gitea);
+    const skipped = [...resolved.skipped];
+    const repos: WatchedRepo[] = [];
+    // A repo whose labels can't be set up is skipped (and retried next
+    // refresh), so it can't take the others down with it.
+    for (const repo of resolved.repos) {
+      if (!this.labelled.has(repo.fullName)) {
+        try {
+          const result = await ensureLabels(this.gitea, repo.ref, dispatcherLabels(this.config));
+          if (result.created.length > 0) {
+            this.log.info("created labels", { repo: repo.fullName, labels: result.created });
+          }
+          this.labelled.add(repo.fullName);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          skipped.push({ name: repo.fullName, reason: `label setup failed: ${message}` });
+          continue;
+        }
+      }
+      repos.push(repo);
+    }
     this.noteSkipped(skipped);
     for (const skip of skipped) {
       if (skip.reason === "empty" && skip.ref) await this.noticeEmptyRepo(skip.name, skip.ref);
-    }
-    for (const repo of repos) {
-      if (this.labelled.has(repo.fullName)) continue;
-      const result = await ensureLabels(this.gitea, repo.ref, dispatcherLabels(this.config));
-      if (result.created.length > 0) {
-        this.log.info("created labels", { repo: repo.fullName, labels: result.created });
-      }
-      this.labelled.add(repo.fullName);
     }
     this.repos = repos;
     this.reposRefreshedAt = this.now().getTime();

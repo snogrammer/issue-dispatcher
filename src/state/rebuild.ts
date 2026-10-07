@@ -33,6 +33,8 @@ export interface RebuildReport {
   released: { repo: string; issue: number }[];
   /** Repos where several issues carry state labels; only `kept` holds the slot. */
   conflicts: { repo: string; issues: number[]; kept: number }[];
+  /** Repos Gitea wouldn't answer for; their stored state is left as is. */
+  failed: { repo: string; error: unknown }[];
 }
 
 export async function rebuildFromGitea(
@@ -40,70 +42,86 @@ export async function rebuildFromGitea(
   client: RebuildClient,
   options: RebuildOptions,
 ): Promise<RebuildReport> {
-  const report: RebuildReport = { restored: [], released: [], conflicts: [] };
-  const labels = stateLabels(options.labelPrefix);
+  const report: RebuildReport = { restored: [], released: [], conflicts: [], failed: [] };
 
+  // One unreadable repo must not stop the rest (or the dispatcher's startup).
   for (const repoRef of options.repos) {
     const repo = `${repoRef.owner}/${repoRef.name}`;
-    const issues = await client.listIssues(repoRef, {
-      assignee: options.botUsername,
-      labels,
-    });
-    // Re-check assignee and labels locally: Gitea drops label names that don't
-    // exist from the filter, and with none left it returns every assigned issue
-    // (seen on 1.27). Don't trust the server-side filters alone.
-    const active = issues
-      .filter((issue) => (issue.assignees ?? []).some((user) => user.login === options.botUsername))
-      .map((issue) => ({
-        issue,
-        state: stateFromLabels(
-          options.labelPrefix,
-          issue.labels.map((label) => label.name),
-        ),
-      }))
-      .filter((entry): entry is typeof entry & { state: ActiveState } => entry.state !== undefined)
-      .sort((a, b) => a.issue.created_at.localeCompare(b.issue.created_at));
-
-    const kept = active[0];
-    const held = store.activeIssue(repo);
-
-    if (held !== null && held !== kept?.issue.number) {
-      store.release(repo, "abandoned");
-      report.released.push({ repo, issue: held });
+    try {
+      await rebuildRepo(store, client, options, repoRef, report);
+    } catch (error) {
+      report.failed.push({ repo, error });
     }
-    if (kept === undefined) continue;
-
-    if (active.length > 1) {
-      report.conflicts.push({
-        repo,
-        issues: active.map((entry) => entry.issue.number),
-        kept: kept.issue.number,
-      });
-    }
-
-    const pulls = await client.listPulls(repoRef, { state: "open" });
-    const stack = orderStack(
-      pulls.filter(
-        (pull) => issueFromBranch(options.labelPrefix, pull.head.ref) === kept.issue.number,
-      ),
-    );
-
-    const work = store.claim(repo, kept.issue.number);
-    const bottom = stack[0];
-    store.updateWork(repo, kept.issue.number, {
-      state: kept.state,
-      prStack: stack.map((pull) => pull.number),
-      ...(work.branch === null && bottom !== undefined ? { branch: bottom.head.ref } : {}),
-    });
-    report.restored.push({
-      repo,
-      issue: kept.issue.number,
-      state: kept.state,
-      prStack: stack.map((pull) => pull.number),
-    });
   }
 
   return report;
+}
+
+async function rebuildRepo(
+  store: StateStore,
+  client: RebuildClient,
+  options: RebuildOptions,
+  repoRef: RepoRef,
+  report: RebuildReport,
+): Promise<void> {
+  const repo = `${repoRef.owner}/${repoRef.name}`;
+  const labels = stateLabels(options.labelPrefix);
+  const issues = await client.listIssues(repoRef, {
+    assignee: options.botUsername,
+    labels,
+  });
+  // Re-check assignee and labels locally: Gitea drops label names that don't
+  // exist from the filter, and with none left it returns every assigned issue
+  // (seen on 1.27). Don't trust the server-side filters alone.
+  const active = issues
+    .filter((issue) => (issue.assignees ?? []).some((user) => user.login === options.botUsername))
+    .map((issue) => ({
+      issue,
+      state: stateFromLabels(
+        options.labelPrefix,
+        issue.labels.map((label) => label.name),
+      ),
+    }))
+    .filter((entry): entry is typeof entry & { state: ActiveState } => entry.state !== undefined)
+    .sort((a, b) => a.issue.created_at.localeCompare(b.issue.created_at));
+
+  const kept = active[0];
+  const held = store.activeIssue(repo);
+
+  if (held !== null && held !== kept?.issue.number) {
+    store.release(repo, "abandoned");
+    report.released.push({ repo, issue: held });
+  }
+  if (kept === undefined) return;
+
+  if (active.length > 1) {
+    report.conflicts.push({
+      repo,
+      issues: active.map((entry) => entry.issue.number),
+      kept: kept.issue.number,
+    });
+  }
+
+  const pulls = await client.listPulls(repoRef, { state: "open" });
+  const stack = orderStack(
+    pulls.filter(
+      (pull) => issueFromBranch(options.labelPrefix, pull.head.ref) === kept.issue.number,
+    ),
+  );
+
+  const work = store.claim(repo, kept.issue.number);
+  const bottom = stack[0];
+  store.updateWork(repo, kept.issue.number, {
+    state: kept.state,
+    prStack: stack.map((pull) => pull.number),
+    ...(work.branch === null && bottom !== undefined ? { branch: bottom.head.ref } : {}),
+  });
+  report.restored.push({
+    repo,
+    issue: kept.issue.number,
+    state: kept.state,
+    prStack: stack.map((pull) => pull.number),
+  });
 }
 
 /**

@@ -40,6 +40,26 @@ function fakeClient(issues: Issue[], pulls: PullRequest[] = []) {
 }
 
 describe("rebuildFromGitea", () => {
+  it("records a repo Gitea won't answer for and still rebuilds the rest", async () => {
+    const store = StateStore.inMemory();
+    const broken = { owner: "org", name: "no-issues" };
+    const notFound = new Error("GET /repos/org/no-issues/issues failed (404): not found");
+    const client: RebuildClient = {
+      listIssues: (repo) =>
+        repo.name === broken.name
+          ? Promise.reject(notFound)
+          : Promise.resolve([issue(4, ["claude:working"])]),
+      listPulls: () => Promise.resolve([]),
+    };
+
+    const report = await rebuildFromGitea(store, client, { ...OPTIONS, repos: [broken, REPO] });
+
+    expect(report.failed).toEqual([{ repo: "org/no-issues", error: notFound }]);
+    expect(report.restored).toEqual([
+      { repo: "org/repo", issue: 4, state: "working", prStack: [] },
+    ]);
+  });
+
   it("restores an empty store from labels and open PRs", async () => {
     const store = StateStore.inMemory();
     const { client, calls } = fakeClient(
@@ -62,6 +82,7 @@ describe("rebuildFromGitea", () => {
       restored: [{ repo: "org/repo", issue: 4, state: "in-review", prStack: [11, 12] }],
       released: [],
       conflicts: [],
+      failed: [],
     });
     expect(store.getWork("org/repo", 4)).toMatchObject({
       state: "in-review",

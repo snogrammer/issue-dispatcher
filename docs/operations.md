@@ -82,15 +82,24 @@ Repos are rediscovered every 5 minutes, and these are skipped:
   once on each issue assigned to it there. Push an initial commit and the
   issue is picked up at the next rediscovery.
 - **archived**: read-only, so nothing can be pushed or commented.
+- **issues disabled**: the repo's issue tracker is turned off, so nothing can
+  be assigned. Turn issues on in the repo's settings if the bot should work there.
+- **label setup failed: …**: the bot couldn't create its labels (usually no
+  write access). Fix the access; the repo is retried at the next rediscovery.
 - **a lookup error** (e.g. `404`): the bot account can't see the repo; add it
   as a collaborator. A `403 ... required=[read:organization]` on `<org>/*`
   means the token lacks that scope: create a new token that includes it.
 
 Each skip is logged once as `not watching repo`, and `repo no longer skipped`
-when it clears.
+when it clears. One unusable repo never stops the bot watching the others.
 
 ## Startup failures
 
 Bad configuration, a wrong `BOT_USERNAME`, an unreachable Gitea, or a
 `STATUS_PORT` already in use stop the process with a one-line
 `startup failed: …` message and exit code 1.
+
+With `restart: unless-stopped` that turns into a restart loop. Behind Caddy it
+shows up as 502s with `lookup claude-dispatcher on 127.0.0.11:53: server
+misbehaving`: Docker's DNS has no entry for a container that isn't running.
+The proxy is fine; check `docker logs claude-dispatcher` for the startup error.
