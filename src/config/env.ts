@@ -49,6 +49,10 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "STATUS_PORT", path: ["status", "port"], kind: "int" },
   { name: "STATUS_HOST", path: ["status", "host"], kind: "string" },
   { name: "DASHBOARD_TOKEN", path: ["dashboard", "token"], kind: "string", secret: true },
+  { name: "SENTRY_DSN", path: ["sentry", "dsn"], kind: "string", secret: true },
+  { name: "SENTRY_ENVIRONMENT", path: ["sentry", "environment"], kind: "string" },
+  { name: "SENTRY_SERVICE_NAME", path: ["sentry", "serviceName"], kind: "string" },
+  { name: "SENTRY_INSTANCE", path: ["sentry", "instance"], kind: "string" },
 ];
 
 /** Path to an optional YAML file merged underneath env values. */

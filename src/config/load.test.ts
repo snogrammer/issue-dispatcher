@@ -159,6 +159,26 @@ describe("loadConfig from env", () => {
     expect(load({ ...env, ORGS: "org" }).orgs).toEqual(["org"]);
   });
 
+  it("leaves Sentry off by default and parses its identity", () => {
+    expect(load(REQUIRED_ENV).sentry).toEqual({ serviceName: "claude-dispatcher" });
+    const config = load({
+      ...REQUIRED_ENV,
+      SENTRY_DSN: "https://key@o1.ingest.sentry.io/42",
+      SENTRY_ENVIRONMENT: "staging",
+      SENTRY_SERVICE_NAME: "issue-dispatcher",
+      SENTRY_INSTANCE: "nas-1",
+    });
+    expect(config.sentry).toEqual({
+      dsn: "https://key@o1.ingest.sentry.io/42",
+      environment: "staging",
+      serviceName: "issue-dispatcher",
+      instance: "nas-1",
+    });
+    expect(loadError({ ...REQUIRED_ENV, SENTRY_DSN: "not a url" })).toContain(
+      "sentry.dsn (SENTRY_DSN)",
+    );
+  });
+
   it("rejects malformed repo names", () => {
     expect(loadError({ ...REQUIRED_ENV, REPOS: "just-a-name" })).toContain(
       "repos.0 (REPOS): expected owner/repo",
@@ -217,6 +237,13 @@ routing:
     );
   });
 
+  it("rejects the Sentry DSN in the file", () => {
+    const yaml = "sentry:\n  dsn: https://key@o1.ingest.sentry.io/42\n";
+    expect(loadError({ ...REQUIRED_ENV, [CONFIG_FILE_VAR]: file }, { [file]: yaml })).toContain(
+      "must be set with SENTRY_DSN",
+    );
+  });
+
   it("rejects unknown keys so typos fail fast", () => {
     const message = loadError(
       { ...REQUIRED_ENV, [CONFIG_FILE_VAR]: file },
@@ -241,6 +268,13 @@ describe("redactConfig", () => {
     expect(JSON.stringify(redacted)).not.toContain("secret-token");
     expect(redacted).toMatchObject({ gitea: { token: "[redacted]" } });
     expect(config.gitea.token).toBe("secret-token");
+  });
+
+  it("hides the Sentry DSN", () => {
+    const dsn = "https://key@o1.ingest.sentry.io/42";
+    const redacted = redactConfig(load({ ...REQUIRED_ENV, SENTRY_DSN: dsn }));
+    expect(JSON.stringify(redacted)).not.toContain(dsn);
+    expect(redacted).toMatchObject({ sentry: { dsn: "[redacted]" } });
   });
 });
 

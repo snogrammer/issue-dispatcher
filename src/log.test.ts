@@ -74,3 +74,32 @@ describe("runtime level and log buffer", () => {
     expect(seen).toHaveLength(2);
   });
 });
+
+describe("report", () => {
+  it("receives warn-or-worse lines above the threshold, with bound fields", () => {
+    const reported: [string, string, Record<string, unknown>][] = [];
+    const error = new Error("boom");
+    const log = createLogger("info", {
+      write: () => undefined,
+      report: (level, message, fields) => reported.push([level, message, fields]),
+    }).child({ repo: "org/a" });
+    log.debug("hidden");
+    log.info("not reported");
+    log.warn("slow", { issue: 3 });
+    log.error("failed", { error });
+    expect(reported).toEqual([
+      ["warn", "slow", { repo: "org/a", issue: 3 }],
+      ["error", "failed", { repo: "org/a", error }],
+    ]);
+  });
+
+  it("is skipped when the level filters the line out", () => {
+    const reported: string[] = [];
+    const log = createLogger("error", {
+      write: () => undefined,
+      report: (level) => reported.push(level),
+    });
+    log.warn("quiet");
+    expect(reported).toEqual([]);
+  });
+});

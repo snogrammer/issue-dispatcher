@@ -132,6 +132,20 @@ export const configSchema = z
         token: z.string().min(16, "use at least 16 characters").optional(),
       })
       .prefault({}),
+    /**
+     * Error reporting; off unless a DSN is set. The service name and instance
+     * tell this dispatcher's events apart from other services in the same org.
+     */
+    sentry: z
+      .strictObject({
+        dsn: z.url({ protocol: /^https?$/ }).optional(),
+        /** Defaults to NODE_ENV, else "production". */
+        environment: z.string().min(1).optional(),
+        serviceName: z.string().regex(NAME_PATTERN).default("claude-dispatcher"),
+        /** Sentry's server name; defaults to the hostname (the container ID in Docker). */
+        instance: z.string().min(1).optional(),
+      })
+      .prefault({}),
   })
   .refine((config) => config.repos.length + config.orgs.length > 0, {
     message: "set at least one repo (REPOS) or org (ORGS) to watch",

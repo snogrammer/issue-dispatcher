@@ -18,6 +18,7 @@ import { GiteaClient } from "./gitea/client.js";
 import { GiteaError } from "./gitea/http.js";
 import { startStatusServer } from "./http/server.js";
 import { createLogger, LogBuffer, type Logger } from "./log.js";
+import { initSentry, type ErrorReporter } from "./sentry.js";
 import { StateStore } from "./state/store.js";
 import { GitError, Workspace } from "./workspace/git.js";
 
@@ -75,17 +76,45 @@ export function createApp(
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   const layers = readConfigLayers({ env });
   const base = buildConfig(layers, {});
+  const secrets = [
+    base.gitea.token,
+    base.dashboard.token,
+    base.sentry.dsn,
+    env.CLAUDE_CODE_OAUTH_TOKEN,
+    env.ANTHROPIC_API_KEY,
+  ];
+  const commit = env.GIT_SHA ?? "unknown";
+  const reporter = await initSentry(base, { version: packageVersion(), commit, secrets, env });
+  try {
+    return await start(env, layers, base, { secrets, commit, reporter });
+  } catch (error) {
+    // A crash-looping container should show up in Sentry, not just its logs.
+    reporter?.captureException(error);
+    await reporter?.flush(FLUSH_TIMEOUT_MS);
+    throw error;
+  }
+}
+
+const FLUSH_TIMEOUT_MS = 2000;
+
+async function start(
+  env: NodeJS.ProcessEnv,
+  layers: ConfigLayers,
+  base: Config,
+  run: {
+    secrets: readonly (string | undefined)[];
+    commit: string;
+    reporter: ErrorReporter | undefined;
+  },
+): Promise<App> {
+  const { reporter } = run;
   const logs = new LogBuffer();
   const log = createLogger(base.logLevel, {
-    secrets: [
-      base.gitea.token,
-      base.dashboard.token,
-      env.CLAUDE_CODE_OAUTH_TOKEN,
-      env.ANTHROPIC_API_KEY,
-    ],
+    secrets: run.secrets,
     sink: (line) => {
       logs.push(line);
     },
+    report: reporter?.report,
   });
 
   // Paths aren't editable from the dashboard, so the base config finds the store.
@@ -96,7 +125,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   log.setLevel(config.logLevel);
   log.info("IssueDispatcher starting", {
     version: packageVersion(),
-    commit: process.env.GIT_SHA ?? "unknown",
+    commit: run.commit,
+    sentry: reporter === undefined ? "disabled" : "enabled",
     config: redactConfig(config),
     dashboardOverrides: Object.keys(overrides),
   });
@@ -141,13 +171,15 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
     if (stopping) return;
     stopping = true;
     log.info("shutting down; in-flight work resumes on next start", { signal });
-    Promise.all([app.stop(), server?.close()]).then(
-      () => process.exit(0),
-      (error: unknown) => {
-        log.error("shutdown failed", { error });
-        process.exit(1);
-      },
-    );
+    Promise.all([app.stop(), server?.close()])
+      .then(() => reporter?.flush(FLUSH_TIMEOUT_MS))
+      .then(
+        () => process.exit(0),
+        (error: unknown) => {
+          log.error("shutdown failed", { error });
+          process.exit(1);
+        },
+      );
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);

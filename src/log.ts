@@ -29,6 +29,12 @@ export interface LoggerOptions {
   sink?: (line: string) => void;
   /** Values to redact. Very short values are ignored to avoid mangling logs. */
   secrets?: readonly (string | undefined)[];
+  /**
+   * Called for every warn-or-worse line that passes the level threshold, with
+   * the child's bound fields merged in (error reporting, see sentry.ts).
+   * Receives raw values: the reporter does its own redaction.
+   */
+  report?: ((level: Level, message: string, fields: Fields) => void) | undefined;
 }
 
 const MIN_SECRET_LENGTH = 8;
@@ -36,11 +42,7 @@ const MIN_SECRET_LENGTH = 8;
 export function createLogger(level: Level, options: LoggerOptions = {}): RootLogger {
   const write = options.write ?? ((line: string) => process.stdout.write(`${line}\n`));
   const sink = options.sink;
-  const secrets = (options.secrets ?? []).filter(
-    (secret): secret is string => secret !== undefined && secret.length >= MIN_SECRET_LENGTH,
-  );
-  const redact = (line: string) =>
-    secrets.reduce((out, secret) => out.replaceAll(secret, "[redacted]"), line);
+  const redact = makeRedactor(options.secrets ?? []);
   // Shared by every child, so setLevel reaches loggers handed out earlier.
   const threshold = { value: LEVELS.indexOf(level) };
   const root = logger(
@@ -50,6 +52,7 @@ export function createLogger(level: Level, options: LoggerOptions = {}): RootLog
       write(safe);
       sink?.(safe);
     },
+    options.report,
     {},
   );
   return {
@@ -60,13 +63,28 @@ export function createLogger(level: Level, options: LoggerOptions = {}): RootLog
   };
 }
 
+/**
+ * Replaces each secret value in a string with "[redacted]". Values shorter than
+ * MIN_SECRET_LENGTH are skipped so a short secret can't mangle every line.
+ */
+export function makeRedactor(secrets: readonly (string | undefined)[]): (text: string) => string {
+  const values = secrets.filter(
+    (secret): secret is string => secret !== undefined && secret.length >= MIN_SECRET_LENGTH,
+  );
+  return (text) => values.reduce((out, secret) => out.replaceAll(secret, "[redacted]"), text);
+}
+
+const REPORT_FROM = LEVELS.indexOf("warn");
+
 function logger(
   threshold: { value: number },
   write: (line: string) => void,
+  report: LoggerOptions["report"],
   bound: Fields,
 ): Logger {
   const emit = (at: Level, message: string, fields: Fields = {}) => {
     if (LEVELS.indexOf(at) < threshold.value) return;
+    if (report && LEVELS.indexOf(at) >= REPORT_FROM) report(at, message, { ...bound, ...fields });
     write(
       JSON.stringify(
         { time: new Date().toISOString(), level: at, msg: message, ...bound, ...fields },
@@ -87,7 +105,7 @@ function logger(
     error: (message, fields) => {
       emit("error", message, fields);
     },
-    child: (fields) => logger(threshold, write, { ...bound, ...fields }),
+    child: (fields) => logger(threshold, write, report, { ...bound, ...fields }),
   };
 }
 

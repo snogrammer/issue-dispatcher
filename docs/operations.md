@@ -35,6 +35,34 @@ wherever they appear, including inside error messages. The last 1,000 lines
 are also kept in memory for the dashboard's Logs page. Every change made from
 the dashboard is logged with `"dashboard": true`.
 
+## Error reporting
+
+Set `SENTRY_DSN` to send errors to Sentry; without it the SDK isn't loaded.
+What gets sent:
+
+- every `error` and `fatal` log line, as an exception when it carries one
+  (reconcile and run failures, Claude auth problems, dashboard 500s), with
+  `repo`, `issue`, `pr` and `phase` as tags and the rest of the line as the
+  `log` context;
+- uncaught exceptions, unhandled rejections and startup failures;
+- `warn` lines, as breadcrumbs on the next event rather than events of their own.
+
+Every event identifies its sender, so several services can share one Sentry
+org or project:
+
+| Field                    | Value                                                        |
+| ------------------------ | ------------------------------------------------------------ |
+| `environment`            | `SENTRY_ENVIRONMENT` (default `NODE_ENV`, else `production`) |
+| `release`                | `<SENTRY_SERVICE_NAME>@<package version>`                    |
+| `dist`, tag `commit`     | the image's `GIT_SHA`                                        |
+| `server_name`            | `SENTRY_INSTANCE` (default: hostname)                        |
+| tag `service`            | `SENTRY_SERVICE_NAME` (default `claude-dispatcher`)          |
+| tags `bot`, `gitea_host` | `BOT_USERNAME` and the host of `GITEA_URL`                   |
+
+The same secret values the logs redact (and the DSN) are scrubbed from every
+event and breadcrumb, and request headers, bodies, cookies, query strings and
+user data are not collected. No performance tracing is sent.
+
 ## Startup failures
 
 Bad configuration, a wrong `BOT_USERNAME`, an unreachable Gitea, or a
