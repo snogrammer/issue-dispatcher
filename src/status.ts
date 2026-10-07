@@ -9,7 +9,8 @@ import type { StateStore } from "./state/store.js";
  * - `GET /healthz`: 200 while the poll loop is alive, 503 once it hasn't
  *   finished a pass in 3× POLL_INTERVAL_S (a hung API call or a wedged loop).
  *   A container healthcheck can restart it; in-flight work resumes on start.
- * - `GET /status`: what it's doing: watched repos, each held issue and its
+ * - `GET /status`: what it's doing: watched repos (and skipped ones, with
+ *   why), each held issue and its
  *   state, runs in progress, usage-limit and CI pauses, recent runs and cost.
  *
  * It exposes repo names, issue numbers and costs, never tokens. The
@@ -54,6 +55,7 @@ export function status(deps: StatusDeps, processStartedAt: Date): Record<string,
     health: health(deps, processStartedAt),
     startedAt: snapshot.startedAt?.toISOString() ?? null,
     repos: snapshot.repos,
+    skippedRepos: snapshot.skipped,
     work: deps.store.activeWork().map((work) => ({
       repo: work.repo,
       issue: work.issue,

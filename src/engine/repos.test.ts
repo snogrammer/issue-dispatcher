@@ -61,8 +61,8 @@ describe("resolveRepos", () => {
     expect(repos).toEqual([]);
     expect(skipped).toEqual([
       { name: "team/gone", reason: "GET /repos/team/gone failed (404): not found" },
-      { name: "team/old", reason: "archived" },
-      { name: "team/new", reason: "empty" },
+      { name: "team/old", reason: "archived", ref: { owner: "team", name: "old" } },
+      { name: "team/new", reason: "empty", ref: { owner: "team", name: "new" } },
     ]);
   });
 });

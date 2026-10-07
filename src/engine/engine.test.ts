@@ -28,6 +28,63 @@ describe("startup", () => {
   });
 });
 
+describe("skipped repos", () => {
+  it("comments once on issues assigned to the bot in an empty repo, across refreshes and restarts", async () => {
+    const { gitea, config, store, runner, clock } = setup({ REPOS: `${A},team/new` });
+    gitea.addRepo("team/new", { empty: true });
+    gitea.addIssue("team/new", { number: 1 });
+    gitea.addIssue("team/new", { number: 2, assignees: ["human"] });
+    const make = () =>
+      new Engine({
+        config,
+        gitea,
+        store,
+        workspace: () => new FakeWorkspace(),
+        runClaude: runner.run,
+        now: () => clock.now,
+      });
+
+    const engine = make();
+    await engine.tick();
+    clock.now = new Date(clock.now.getTime() + 10 * 60_000);
+    await engine.tick();
+    await make().tick();
+
+    expect(gitea.commentsOn("team/new", 1)).toHaveLength(1);
+    expect(gitea.commentsOn("team/new", 1)[0]).toContain("`team/new` has no commits");
+    expect(gitea.commentsOn("team/new", 2)).toEqual([]);
+    expect(engine.snapshot().skipped).toEqual([{ name: "team/new", reason: "empty" }]);
+  });
+
+  it("logs a skip once, and again only when it clears", async () => {
+    const { gitea, config, store, runner, clock } = setup({ REPOS: `${A},team/new` });
+    gitea.addRepo("team/new", { empty: true });
+    const lines: string[] = [];
+    const engine = new Engine({
+      config,
+      gitea,
+      store,
+      workspace: () => new FakeWorkspace(),
+      runClaude: runner.run,
+      now: () => clock.now,
+      log: createLogger("info", { write: (line) => lines.push(line) }),
+    });
+    const messages = () => lines.map((line) => (JSON.parse(line) as { msg: string }).msg);
+
+    await engine.tick();
+    clock.now = new Date(clock.now.getTime() + 10 * 60_000);
+    await engine.tick();
+    expect(messages().filter((m) => m === "not watching repo")).toHaveLength(1);
+
+    gitea.addRepo("team/new");
+    clock.now = new Date(clock.now.getTime() + 10 * 60_000);
+    await engine.tick();
+    expect(messages()).toContain("repo no longer skipped");
+    expect(engine.snapshot().skipped).toEqual([]);
+    expect(engine.watchedRepos().map((r) => r.fullName)).toContain("team/new");
+  });
+});
+
 describe("snapshot", () => {
   it("reports runs in progress and when the last poll finished", async () => {
     const { gitea, engine, runner, clock } = setup();

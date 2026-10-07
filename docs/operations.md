@@ -16,7 +16,8 @@ endpoints, alongside the [dashboard](dashboard.md):
   finished a pass in 3 × `POLL_INTERVAL_S`. Use it as the container
   healthcheck; a restart is safe, because in-flight work resumes from Gitea
   labels and the saved Claude session.
-- `GET /status`: JSON with the watched repos, each held issue (state, branch,
+- `GET /status`: JSON with the watched repos, the configured repos it
+  isn't watching and why (`skippedRepos`), each held issue (state, branch,
   PRs, fix rounds), runs in progress and the session cap, pauses (usage limit,
   pickups, CI backpressure), cost totals for the last 24 hours, 7 days and all
   time (per repo), and the 20 most recent runs with model, effort, outcome and
@@ -40,6 +41,9 @@ the dashboard token and Claude credentials are replaced with `[redacted]`
 wherever they appear, including inside error messages. The last 1,000 lines
 are also kept in memory for the dashboard's Logs page. Every change made from
 the dashboard is logged with `"dashboard": true`.
+
+Portainer's log viewer re-formats JSON lines and can show the same timestamp
+and message many times over. `docker logs <container>` shows the raw lines.
 
 ## Error reporting
 
@@ -68,6 +72,21 @@ org or project:
 The same secret values the logs redact (and the DSN) are scrubbed from every
 event and breadcrumb, and request headers, bodies, cookies, query strings and
 user data are not collected. No performance tracing is sent.
+
+## The bot ignores an assigned issue
+
+Check the dashboard's "Not watching" list (or `skippedRepos` in `/status`).
+Repos are rediscovered every 5 minutes, and these are skipped:
+
+- **empty** (no commits): there is no branch to work from. The bot comments
+  once on each issue assigned to it there. Push an initial commit and the
+  issue is picked up at the next rediscovery.
+- **archived**: read-only, so nothing can be pushed or commented.
+- **a lookup error** (e.g. `404`): the bot account can't see the repo; add it
+  as a collaborator.
+
+Each skip is logged once as `not watching repo`, and `repo no longer skipped`
+when it clears.
 
 ## Startup failures
 

@@ -15,9 +15,16 @@ export interface WatchedRepo {
   mergeStyle: MergeStyle;
 }
 
+export interface SkippedRepo {
+  name: string;
+  reason: string;
+  /** Set when the repo itself was readable (archived or empty), not for lookup errors. */
+  ref?: RepoRef;
+}
+
 export interface ResolvedRepos {
   repos: WatchedRepo[];
-  skipped: { name: string; reason: string }[];
+  skipped: SkippedRepo[];
 }
 
 export type RepoClient = Pick<GiteaClient, "getRepo" | "listOrgRepos">;
@@ -50,11 +57,12 @@ export async function resolveRepos(
 
   const repos: WatchedRepo[] = [];
   for (const repo of found.values()) {
-    if (repo.archived) skipped.push({ name: repo.full_name, reason: "archived" });
-    else if (repo.empty) skipped.push({ name: repo.full_name, reason: "empty" });
+    const ref = { owner: repo.owner.login, name: repo.name };
+    if (repo.archived) skipped.push({ name: repo.full_name, reason: "archived", ref });
+    else if (repo.empty) skipped.push({ name: repo.full_name, reason: "empty", ref });
     else {
       repos.push({
-        ref: { owner: repo.owner.login, name: repo.name },
+        ref,
         fullName: repo.full_name,
         defaultBranch: repo.default_branch,
         mergeStyle: config.mergeStyle ?? mergeStyleOf(repo),

@@ -49,6 +49,7 @@ function deps(options: Options = {}) {
     lastTickAt: T0,
     ciBusy: false,
     repos: ["org/a"],
+    skipped: [],
     running: [],
     ...options.snapshot,
   };
@@ -160,7 +161,13 @@ describe("status server", () => {
 
   it("serves /status with work, pauses, costs and recent runs, and no secrets", async () => {
     const running = { repo: "org/a", issue: 4, phase: "fix-ci" as const, startedAt: T0 };
-    const { d, store } = deps({ snapshot: { running: [running], ciBusy: true } });
+    const { d, store } = deps({
+      snapshot: {
+        running: [running],
+        ciBusy: true,
+        skipped: [{ name: "org/new", reason: "empty" }],
+      },
+    });
     store.claim("org/a", 4, { branch: "claude/4-x" });
     store.updateWork("org/a", 4, { state: "in-review", prStack: [5], fixAttempts: 1 });
     store.setGovernor({ pickupPausedUntil: new Date("2026-06-01T15:00:00Z") });
@@ -174,6 +181,7 @@ describe("status server", () => {
     expect(body).toMatchObject({
       version: "1.2.3",
       repos: ["org/a"],
+      skippedRepos: [{ name: "org/new", reason: "empty" }],
       work: [
         {
           repo: "org/a",

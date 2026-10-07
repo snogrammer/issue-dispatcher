@@ -13,7 +13,7 @@ import {
 } from "../conventions.js";
 import type { GiteaClient } from "../gitea/client.js";
 import { isNotFound } from "../gitea/http.js";
-import type { Issue, Label } from "../gitea/types.js";
+import type { Issue, Label, RepoRef } from "../gitea/types.js";
 import { dispatcherLabels, ensureLabels } from "../labels.js";
 import { silentLogger, type Logger } from "../log.js";
 import { resolveRoute } from "../routing.js";
@@ -32,7 +32,7 @@ import { Governor, type Observation } from "./governor.js";
 import { KeyedLock } from "./lock.js";
 import { orderCandidates } from "./pickup.js";
 import { QuestionDesk } from "./questions.js";
-import { resolveRepos, type WatchedRepo } from "./repos.js";
+import { resolveRepos, type SkippedRepo, type WatchedRepo } from "./repos.js";
 
 /**
  * The dispatcher's main loop. Every poll it walks the watched repos; each
@@ -93,6 +93,8 @@ export interface EngineSnapshot {
   lastTickAt: Date | null;
   ciBusy: boolean;
   repos: string[];
+  /** Configured repos the engine can't work on, and why (empty, archived, lookup error). */
+  skipped: { name: string; reason: string }[];
   running: { repo: string; issue: number; phase: Phase; startedAt: Date }[];
 }
 
@@ -107,6 +109,9 @@ interface InFlight {
 }
 
 const REPO_REFRESH_MS = 5 * 60_000;
+
+/** Hidden in the comment left on issues assigned to the bot in an empty repo. */
+const EMPTY_REPO_MARKER = "<!-- claude-dispatcher:empty-repo -->";
 
 export class Engine {
   private readonly config: Config;
@@ -125,6 +130,10 @@ export class Engine {
   private readonly inFlight = new Map<string, InFlight>();
   private readonly labelled = new Set<string>();
   private repos: WatchedRepo[] = [];
+  /** Skipped repos from the last refresh, keyed by name, so each skip is logged once. */
+  private skipped = new Map<string, string>();
+  /** `owner/name#n` issues already told their repo is empty (or found already told). */
+  private readonly emptyNoticed = new Set<string>();
   private reposRefreshedAt = Number.NEGATIVE_INFINITY;
   private stopping = false;
   private startedAt: Date | null = null;
@@ -164,6 +173,7 @@ export class Engine {
       lastTickAt: this.lastTickAt,
       ciBusy: this.ciBusy,
       repos: this.repos.map((repo) => repo.fullName),
+      skipped: [...this.skipped].map(([name, reason]) => ({ name, reason })),
       running: [...this.inFlight.entries()].map(([repo, run]) => ({
         repo,
         issue: run.issue,
@@ -279,7 +289,10 @@ export class Engine {
   private async refreshRepos(): Promise<void> {
     if (this.now().getTime() - this.reposRefreshedAt < REPO_REFRESH_MS) return;
     const { repos, skipped } = await resolveRepos(this.config, this.gitea);
-    for (const skip of skipped) this.log.warn("not watching repo", skip);
+    this.noteSkipped(skipped);
+    for (const skip of skipped) {
+      if (skip.reason === "empty" && skip.ref) await this.noticeEmptyRepo(skip.name, skip.ref);
+    }
     for (const repo of repos) {
       if (this.labelled.has(repo.fullName)) continue;
       const result = await ensureLabels(this.gitea, repo.ref, dispatcherLabels(this.config));
@@ -290,6 +303,50 @@ export class Engine {
     }
     this.repos = repos;
     this.reposRefreshedAt = this.now().getTime();
+  }
+
+  /** Log a skip when it starts or its reason changes, not on every refresh. */
+  private noteSkipped(skipped: readonly SkippedRepo[]): void {
+    const next = new Map(skipped.map((skip) => [skip.name, skip.reason]));
+    for (const [name, reason] of next) {
+      if (this.skipped.get(name) !== reason) this.log.warn("not watching repo", { name, reason });
+    }
+    for (const name of this.skipped.keys()) {
+      if (!next.has(name)) this.log.info("repo no longer skipped", { name });
+    }
+    this.skipped = next;
+  }
+
+  /**
+   * An empty repo has no branch to work from, so issues assigned to the bot
+   * there would sit unanswered. Say so once on each, with a hidden marker so a
+   * restart doesn't repeat it. Failures are logged, never fatal to discovery.
+   */
+  private async noticeEmptyRepo(fullName: string, ref: RepoRef): Promise<void> {
+    try {
+      const assigned = await this.gitea.listIssues(ref, {
+        assignee: this.config.gitea.botUsername,
+      });
+      for (const issue of assigned) {
+        const key = `${fullName}#${String(issue.number)}`;
+        if (this.emptyNoticed.has(key)) continue;
+        const comments = await this.gitea.listComments(ref, issue.number);
+        if (!comments.some((comment) => comment.body.includes(EMPTY_REPO_MARKER))) {
+          await this.gitea.createComment(
+            ref,
+            issue.number,
+            `I can't start on this yet: \`${fullName}\` has no commits, so there's no branch to work from. Push an initial commit (a README is enough) and I'll pick this up within about 5 minutes.\n\n${EMPTY_REPO_MARKER}`,
+          );
+          this.log.info("told assigned issue its repo is empty", {
+            repo: fullName,
+            issue: issue.number,
+          });
+        }
+        this.emptyNoticed.add(key);
+      }
+    } catch (error) {
+      this.log.warn("could not comment on issues in empty repo", { repo: fullName, error });
+    }
   }
 
   // --- Per-repo reconcile ---------------------------------------------------

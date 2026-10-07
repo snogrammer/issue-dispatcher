@@ -507,6 +507,24 @@ async function overviewPage(gen) {
             status.repos.map((repo) => h("span", { class: "pill" }, repoLink(repo))),
           )
         : h("p", { class: "empty" }, "No repos found yet."),
+      (status.skippedRepos ?? []).length
+        ? h(
+            "div",
+            {},
+            h("h3", {}, "Not watching"),
+            h(
+              "div",
+              { class: "row" },
+              status.skippedRepos.map((skip) =>
+                h(
+                  "span",
+                  { class: "pill warn", title: skip.reason },
+                  `${skip.name}: ${skip.reason}`,
+                ),
+              ),
+            ),
+          )
+        : null,
     ),
   ];
 }
