@@ -295,6 +295,47 @@ describe("after a run", () => {
     expect(gitea.commentsOn(A, 1).at(-1)).toContain("could not prepare the run: git fetch failed");
   });
 
+  it("blocks when pushing fails, instead of re-running the session every poll (#49)", async () => {
+    const { gitea, engine, store, runner, workspace } = setup();
+    workspace(A).failPush = true;
+    gitea.addIssue(A, { number: 1 });
+
+    await cycle(engine);
+
+    expect(gitea.labelNames(A, 1)).toEqual(["claude:blocked"]);
+    const comment = gitea.commentsOn(A, 1).at(-1) ?? "";
+    expect(comment).toContain("The implement run finished, but what comes after it failed");
+    expect(comment).toContain("User permission denied for writing");
+
+    await cycle(engine);
+    await cycle(engine);
+    expect(runner.requests).toHaveLength(1);
+    expect(store.recentRuns()).toHaveLength(1);
+  });
+
+  it("doesn't re-run a session whose last run succeeded but was never handled", async () => {
+    const { gitea, engine, store, runner } = setup();
+    gitea.addIssue(A, { number: 1, labels: ["claude:working"] });
+    store.claim(A, 1, { state: "working", branch: "claude/1-x" });
+    store.updateWork(A, 1, { sessionId: "session-0" });
+    const run = store.startRun({
+      repo: A,
+      issue: 1,
+      phase: "implement",
+      model: "sonnet",
+      effort: "high",
+      maxTurns: 100,
+      sessionId: "session-0",
+    });
+    store.finishRun(run, { exit: "success", sessionId: "session-0" });
+
+    await cycle(engine);
+
+    expect(runner.requests).toHaveLength(0);
+    expect(gitea.labelNames(A, 1)).toEqual(["claude:blocked"]);
+    expect(gitea.commentsOn(A, 1).at(-1)).toContain("its result was never handled");
+  });
+
   it("blocks with Claude's questions when it needs a human", async () => {
     const { gitea, engine, runner } = setup();
     gitea.addIssue(A, { number: 1 });

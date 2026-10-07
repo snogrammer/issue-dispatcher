@@ -93,6 +93,19 @@ Repos are rediscovered every 5 minutes, and these are skipped:
 Each skip is logged once as `not watching repo`, and `repo no longer skipped`
 when it clears. One unusable repo never stops the bot watching the others.
 
+## An issue is blocked: "what comes after it failed"
+
+The run did its work, but pushing the branch, opening the PR or filing
+questions failed afterwards. The most common cause is that the bot can't push:
+it needs **write** access to code, issues and pull requests in each repo it
+works in. For org repos, that means a team with `Code: Write` (read-only code
+lets it comment and label, but the push is rejected). Fix the access, then
+remove the `claude:blocked` label to start the issue over.
+
+An issue left `working` after a successful run (e.g. the dispatcher stopped
+between the run and its push) is blocked the same way on the next poll rather
+than run again, so a successful session is never repeated and re-billed.
+
 ## Startup failures
 
 Bad configuration, a wrong `BOT_USERNAME`, an unreachable Gitea, or a

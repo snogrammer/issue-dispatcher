@@ -102,6 +102,7 @@ export class FakeWorkspace implements WorkspaceLike {
   readonly pushed: [number, string[]][] = [];
   readonly heads = new Map<string, string>();
   failPrepare = false;
+  failPush = false;
   stuck = false;
   /** Make the next mechanical rebase hit conflicts. */
   rebaseConflicts = false;
@@ -122,6 +123,9 @@ export class FakeWorkspace implements WorkspaceLike {
   }
 
   push(issue: number, branches: string[]): Promise<Map<string, string>> {
+    if (this.failPush) {
+      return Promise.reject(new Error("remote: User permission denied for writing."));
+    }
     this.pushed.push([issue, branches]);
     const result = new Map<string, string>();
     for (const branch of branches) {

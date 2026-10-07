@@ -412,6 +412,16 @@ export class Engine {
       case "working":
         // Nothing running means the dispatcher restarted mid-run, or a rate
         // limit or capacity check deferred it: (re)start the implement run.
+        // Unless this session's last run already succeeded: then its result
+        // was never handled, and running it again would only repeat (and
+        // re-bill) the same work (#49).
+        if (this.lastRunSucceeded(context)) {
+          await actions.block(
+            context,
+            "The implement run finished, but its result was never handled (the dispatcher may have stopped part way). Not running it again.",
+          );
+          return;
+        }
         this.startRun(context, "implement");
         return;
       case "in-review":
@@ -619,8 +629,46 @@ export class Engine {
       if (run.cancelled || this.stopping) return;
       const work = this.store.getWork(name, issue.number);
       if (work === undefined || this.store.activeIssue(name) !== issue.number) return;
-      await this.handleResult({ repo, issue, work }, phase, result, workspace, limit);
+      try {
+        await this.handleResult({ repo, issue, work }, phase, result, workspace, limit);
+      } catch (error) {
+        // Left alone, the issue would keep its state and the next poll would
+        // run the same phase again, forever (#49). Block instead.
+        await this.blockAfterFailure({ repo, issue, work }, phase, error);
+      }
     });
+  }
+
+  /**
+   * What follows a run (pushing, opening PRs, filing questions) failed. Block
+   * so a human can look, rather than re-running a session that already did
+   * the work. If even blocking fails, the run-history check in
+   * reconcileActive still keeps the run from repeating.
+   */
+  private async blockAfterFailure(
+    context: WorkContext,
+    phase: Phase,
+    error: unknown,
+  ): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error);
+    this.log.error("handling the run result failed; blocking", {
+      repo: context.repo.fullName,
+      issue: context.issue.number,
+      phase,
+      error,
+    });
+    try {
+      await this.actions().block(
+        context,
+        `The ${phase} run finished, but what comes after it failed: ${message}\n\nCheck that ${this.config.gitea.botUsername} can push branches and open PRs in this repo.`,
+      );
+    } catch (blockError) {
+      this.log.error("could not block the issue", {
+        repo: context.repo.fullName,
+        issue: context.issue.number,
+        error: blockError,
+      });
+    }
   }
 
   private async handleResult(
@@ -633,7 +681,8 @@ export class Engine {
     const name = context.repo.fullName;
     switch (result.kind) {
       case "success":
-        if (result.report) await this.afterSuccess(context, phase, result.report, workspace);
+        if (!result.report) throw new Error("the run succeeded without a report");
+        await this.afterSuccess(context, phase, result.report, workspace);
         return;
       case "aborted":
         return;
@@ -815,6 +864,13 @@ export class Engine {
       if (isNotFound(error)) return undefined;
       throw error;
     }
+  }
+
+  /** Whether the latest run on this issue, in its current session, succeeded. */
+  private lastRunSucceeded({ repo, issue, work }: WorkContext): boolean {
+    if (work.sessionId === null) return false;
+    const [last] = this.store.listRuns({ repo: repo.fullName, issue: issue.number, limit: 1 });
+    return last?.sessionId === work.sessionId && last.exit === "success";
   }
 
   private isAssigned(issue: Issue): boolean {
