@@ -60,23 +60,30 @@ compose file needs:
 | `DISPATCHER_DATA_PATH`       | host directory for state (SQLite)                                |
 | `DISPATCHER_WORKSPACES_PATH` | host directory for repo checkouts                                |
 | `DISPATCHER_MEMORY_LIMIT`    | container memory limit (default `4g`)                            |
+| `SHARED_NETWORK`             | existing Docker network shared with Caddy (default `caddy_net`)  |
+| `DISPATCHER_BIND_ADDR`       | host address for the dashboard port (default `127.0.0.1`)        |
+| `DISPATCHER_HOST_PORT`       | host port for the dashboard (default `8080`)                     |
 
-The container runs as uid 10001, so create the host directories owned by it
-before the first deploy:
-
-```sh
-mkdir -p /srv/claude-dispatcher/{data,workspaces}
-chown -R 10001:10001 /srv/claude-dispatcher
-```
+The dispatcher runs as uid 10001. The container starts as root only long
+enough to take ownership of `/data` and `/workspaces` (so host directories
+Docker creates owned by root just work), then drops to uid 10001.
 
 If the registry is private, add it under Portainer's registries so the host can
 pull the image.
 
-If the directories don't exist when the stack first starts, Docker creates them
-owned by root and the container exits at startup with
-`Data directory /data is not writable by uid 10001` (older images:
-`SqliteError: unable to open database file`). Run the `chown` above on the host
-paths and restart the stack.
+Images before this change ran as uid 10001 from the start and exited with
+`Data directory /data is not writable by uid 10001` (or, older still,
+`SqliteError: unable to open database file`) on root-owned directories. If you
+still see that, the host is running an old image. Check which build is
+running: the `IssueDispatcher starting` log line has a `commit` field, or
+
+```sh
+docker inspect claude-dispatcher \
+  --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+```
+
+Then re-pull `:latest` and recreate the container (Portainer: the stack's
+_Pull and redeploy_, with _Re-pull image_ on).
 
 ## Publishing
 
@@ -95,7 +102,7 @@ Configure it on the repository (or organisation):
 | var    | `IMAGE_PLATFORMS`       | e.g. `linux/amd64 linux/arm64` (default `linux/amd64`)               |
 | var    | `CLAUDE_CODE_VERSION`   | Claude Code dist-tag or version to bake in (default `stable`)        |
 | var    | `PORTAINER_URL`         | e.g. `https://portainer.example.com`; without it there's no redeploy |
-| var    | `PORTAINER_STACK_ID`    | the stack's ID (from its URL in Portainer)                           |
+| var    | `PORTAINER_STACK_ID`    | the stack's ID (from its URL); without it there's no redeploy        |
 | var    | `PORTAINER_ENDPOINT_ID` | Portainer environment ID (default `1`)                               |
 | secret | `REGISTRY_USERNAME`     | registry login; also used for Portainer's git pull of the stack      |
 | secret | `REGISTRY_PASSWORD`     | registry password or token                                           |
@@ -149,10 +156,11 @@ Claude runs project commands without approval prompts
 
 ## Status
 
-`/healthz`, `/status` and the [dashboard](dashboard.md) listen on
-`127.0.0.1:8080` inside the container (see [operations.md](operations.md)). To
-serve the dashboard through Caddy, set `STATUS_HOST=0.0.0.0` and proxy to
-`claude-dispatcher:8080` on the shared network. To open it from the host
-directly instead, also uncomment the `ports:` entry in the compose file. Set `DASHBOARD_TOKEN` to allow config edits
-and actions, and put it behind HTTPS (a reverse proxy) if it's reachable beyond
-localhost.
+`/healthz`, `/status` and the [dashboard](dashboard.md) are served on port
+8080 (see [operations.md](operations.md)). The Portainer compose file sets
+`STATUS_HOST=0.0.0.0` and publishes the port on
+`${DISPATCHER_BIND_ADDR}:${DISPATCHER_HOST_PORT}` (default `127.0.0.1:8080`).
+A Caddy container on the shared network proxies to `claude-dispatcher:8080`; a
+Caddy on the host proxies to `127.0.0.1:8080`. Set `DASHBOARD_TOKEN` to allow
+config edits and actions, and put it behind HTTPS (a reverse proxy) if it's
+reachable beyond localhost.

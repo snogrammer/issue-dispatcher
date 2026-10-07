@@ -12,15 +12,13 @@
 #   DISPATCHER_MEMORY_LIMIT     container memory limit (default: 4g)
 #   SHARED_NETWORK              existing Docker network shared with Caddy
 #                               (default: caddy_net)
+#   DISPATCHER_BIND_ADDR        host address the dashboard port is published on
+#                               (default: 127.0.0.1; 0.0.0.0 for a remote proxy)
+#   DISPATCHER_HOST_PORT        host port for the dashboard (default: 8080)
 #
-# The container runs as uid 10001, so create both host directories owned by it
-# before the first deploy:
-#
-#   mkdir -p /srv/claude-dispatcher/{data,workspaces}
-#   chown -R 10001:10001 /srv/claude-dispatcher
-#
-# Otherwise Docker creates them owned by root and startup fails with
-# "Data directory /data is not writable by uid 10001".
+# The dispatcher runs as uid 10001. If Docker creates the host directories
+# (owned by root), the entrypoint takes ownership of them before dropping
+# privileges, so no manual chown is needed.
 #
 # Both directories can be emptied: state is rebuilt from Gitea labels and
 # checkouts are re-cloned.
@@ -40,6 +38,14 @@ services:
     environment:
       DATA_DIR: /data
       WORKSPACE_DIR: /workspaces
+      # Listen beyond the container's loopback, so Caddy and the published
+      # port below can reach /healthz, /status and the dashboard.
+      STATUS_HOST: 0.0.0.0
+    # Caddy on ${SHARED_NETWORK} proxies to claude-dispatcher:8080; a Caddy on
+    # the host (or elsewhere, with DISPATCHER_BIND_ADDR=0.0.0.0) uses this port.
+    # Set DASHBOARD_TOKEN to allow config edits from the dashboard.
+    ports:
+      - "${DISPATCHER_BIND_ADDR:-127.0.0.1}:${DISPATCHER_HOST_PORT:-8080}:8080"
     volumes:
       - ${DISPATCHER_DATA_PATH:?set DISPATCHER_DATA_PATH}:/data
       - ${DISPATCHER_WORKSPACES_PATH:?set DISPATCHER_WORKSPACES_PATH}:/workspaces
@@ -51,13 +57,6 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-    # /healthz, /status and the web dashboard listen on 127.0.0.1 inside the
-    # container by default.
-    # To serve the dashboard through Caddy, set STATUS_HOST=0.0.0.0 (and
-    # DASHBOARD_TOKEN to allow changes) and proxy to claude-dispatcher:8080.
-    # To open it from the host directly instead, also uncomment:
-    # ports:
-    #   - "127.0.0.1:8080:8080"
 
 networks:
   # Shared with Caddy so it can proxy to claude-dispatcher:8080. It must already

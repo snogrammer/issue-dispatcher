@@ -2,7 +2,9 @@
 
 # IssueDispatcher (claude-dispatcher): Node, git, the Claude Code CLI and the dispatcher itself.
 # The container is the sandbox Claude works in (CLAUDE_PERMISSION_MODE defaults
-# to bypassPermissions), so it runs as a non-root user, holds no credentials
+# to bypassPermissions), so the dispatcher runs as a non-root user (uid 10001;
+# the entrypoint starts as root only to take ownership of /data and
+# /workspaces, then drops privileges), holds no credentials
 # beyond Claude's own and the bot's Gitea token, and never gets the Docker
 # socket.
 
@@ -50,6 +52,7 @@ COPY web ./web
 COPY assets/brand/web ./assets/brand/web
 COPY assets/brand/svg ./assets/brand/svg
 COPY assets/brand/favicon ./assets/brand/favicon
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/dispatcher-entrypoint
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \
@@ -58,7 +61,8 @@ ENV NODE_ENV=production \
     # The image is rebuilt to upgrade Claude Code; it must not update itself.
     DISABLE_AUTOUPDATER=1
 
-USER dispatcher
+# No USER: dispatcher-entrypoint fixes volume ownership as root, then runs
+# the dispatcher as uid 10001.
 VOLUME ["/data", "/workspaces"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
@@ -66,8 +70,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 
 # Set by the publish workflow; declared last so it doesn't bust the layer cache.
 ARG GIT_SHA=unknown
+# Logged at startup, so the running build is visible in the container logs.
+ENV GIT_SHA=$GIT_SHA
 LABEL org.opencontainers.image.title=IssueDispatcher \
       org.opencontainers.image.revision=$GIT_SHA
 
-ENTRYPOINT ["tini", "--"]
+ENTRYPOINT ["tini", "--", "dispatcher-entrypoint"]
 CMD ["node", "dist/main.js"]

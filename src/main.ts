@@ -95,6 +95,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   const { config, overrides } = withSavedOverrides(layers, base, store.getConfigOverrides(), log);
   log.setLevel(config.logLevel);
   log.info("IssueDispatcher starting", {
+    version: packageVersion(),
+    commit: process.env.GIT_SHA ?? "unknown",
     config: redactConfig(config),
     dashboardOverrides: Object.keys(overrides),
   });

@@ -3,10 +3,10 @@
 IssueDispatcher serves a web dashboard from the same server as `/healthz` and
 `/status` (`STATUS_PORT`, default `8080`). Open `http://<host>:8080/`.
 
-It binds to `STATUS_HOST`, `127.0.0.1` by default, so out of the box it's only
-reachable from inside the container. To open it from the host, set
-`STATUS_HOST=0.0.0.0` and publish the port in the compose file (see
-[deploy.md](deploy.md#status)). If it's reachable beyond localhost, put it
+It binds to `STATUS_HOST`, `127.0.0.1` by default, so it's only reachable
+from inside the container. The Portainer compose file sets `STATUS_HOST=0.0.0.0`
+and publishes the port for Caddy (see [deploy.md](deploy.md#status)); for the
+local compose stack, set it in `.env` and publish the port yourself. If it's reachable beyond localhost, put it
 behind a reverse proxy with HTTPS. The session cookie gets `Secure` when the
 proxy sends `X-Forwarded-Proto: https`.
 
