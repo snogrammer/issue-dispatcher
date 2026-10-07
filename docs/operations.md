@@ -83,7 +83,8 @@ Repos are rediscovered every 5 minutes, and these are skipped:
   issue is picked up at the next rediscovery.
 - **archived**: read-only, so nothing can be pushed or commented.
 - **a lookup error** (e.g. `404`): the bot account can't see the repo; add it
-  as a collaborator.
+  as a collaborator. A `403 ... required=[read:organization]` on `<org>/*`
+  means the token lacks that scope: create a new token that includes it.
 
 Each skip is logged once as `not watching repo`, and `repo no longer skipped`
 when it clears.

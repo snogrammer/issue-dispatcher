@@ -63,9 +63,12 @@ More: [workflow](docs/workflow.md) · [configuration](docs/config.md) ·
 
 1. **Bot user**: create a regular (non-admin) user, e.g. `claude-bot`, and add
    it as a collaborator with **Write** access to each repo it should work on
-   (Gitea only lets you assign issues to users with access).
+   (Gitea only lets you assign issues to users with access). With `ORGS`, add
+   it instead to an org team with Write access to all repositories.
 2. **Token**: logged in as the bot, create an access token with
-   `write:repository`, `write:issue` and `read:user`. The token must belong to
+   `write:repository`, `write:issue` and `read:user`, plus `read:organization`
+   if you use `ORGS`. Scopes can't be changed later, so a missing one means a
+   new token. The token must belong to
    the bot so commits, comments and PRs are attributed to it.
 3. **Branch protection** on the default branch: require status checks, require
    **0** approvals (the bot can't approve its own PRs, so any required approval
