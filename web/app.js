@@ -1,11 +1,15 @@
 // IssueDispatcher dashboard: a small hash-routed app with no build step and
 // no dependencies. Every value from the API goes into the DOM as text (never
 // innerHTML), so issue titles, branch names and log lines can't inject markup.
+//
+// The server only hands this out to a logged-in browser (others get
+// landing.html), so there's no logged-out state here: once the session ends,
+// reloading brings the landing page back.
 
 const view = document.getElementById("view");
 const toastEl = document.getElementById("toast");
 
-/** @type {{ authenticated: boolean, writesEnabled: boolean, configEditable: boolean, version: string, giteaUrl: string, botUsername: string, humanReviewer: string } | null} */
+/** @type {{ authenticated: boolean, homeUrl: string | null, configEditable: boolean, version: string, giteaUrl: string, botUsername: string, humanReviewer: string } | null} */
 let session = null;
 /** Cleanup for the page being shown (timers, event streams). */
 let teardown = () => {};
@@ -114,6 +118,8 @@ async function api(path, { method = "GET", body } = {}) {
     credentials: "same-origin",
   });
   const data = await response.json().catch(() => ({}));
+  // Logged out elsewhere, or the token was rotated.
+  if (response.status === 401) sessionEnded();
   if (!response.ok) {
     const error = new Error(data.error ?? `${response.status} ${response.statusText}`);
     error.status = response.status;
@@ -122,33 +128,32 @@ async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
+/** The server serves the landing page in place of the dashboard now. */
+function sessionEnded() {
+  location.reload();
+}
+
 async function loadSession() {
   try {
     session = await api("/api/session");
   } catch {
     session = null;
   }
+  if (session && !session.authenticated) sessionEnded();
   renderSession();
 }
 
-/** Run a write; prompts for login on 401 and reports the outcome. */
+/** Run a write and report the outcome. */
 async function write(label, path, options = { method: "POST" }) {
   try {
     const result = await api(path, options);
     toast(label);
     return result;
   } catch (error) {
-    if (error.status === 401) {
-      session = { ...session, authenticated: false };
-      renderSession();
-      openLogin();
-    }
     toast(error.message, true);
     throw error;
   }
 }
-
-const canWrite = () => Boolean(session?.writesEnabled && session?.authenticated);
 
 /** A control action button's handler: run it, then repaint (errors were already shown). */
 const act = (label, path) => () => write(label, path).then(route, () => {});
@@ -173,63 +178,31 @@ function renderHealth(status) {
 function renderSession() {
   const el = document.getElementById("session");
   el.replaceChildren();
-  if (!session) return;
-  if (!session.writesEnabled) {
-    el.append(
-      h(
-        "span",
-        { class: "muted", title: "Set DASHBOARD_TOKEN to enable config edits and actions" },
-        "Read-only",
-      ),
-    );
-  } else if (session.authenticated) {
-    el.append(
-      h(
-        "button",
-        {
-          type: "button",
-          onclick: async () => {
-            await api("/api/logout", { method: "POST" }).catch(() => {});
-            await loadSession();
-            route();
-          },
+  if (session?.homeUrl) {
+    el.append(h("a", { href: session.homeUrl, rel: "noreferrer" }, `← ${hostOf(session.homeUrl)}`));
+  }
+  el.append(
+    h(
+      "button",
+      {
+        type: "button",
+        onclick: async () => {
+          await api("/api/logout", { method: "POST" }).catch(() => {});
+          location.assign("/");
         },
-        "Log out",
-      ),
-    );
-  } else {
-    el.append(h("button", { type: "button", onclick: openLogin }, "Log in"));
-  }
+      },
+      "Log out",
+    ),
+  );
 }
 
-// --- Login dialog ------------------------------------------------------------------
-
-const loginDialog = document.getElementById("login");
-const loginForm = document.getElementById("login-form");
-const loginError = document.getElementById("login-error");
-
-function openLogin() {
-  if (!session?.writesEnabled || loginDialog.open) return;
-  loginError.hidden = true;
-  loginForm.reset();
-  loginDialog.showModal();
-}
-
-document.getElementById("login-cancel").addEventListener("click", () => loginDialog.close());
-loginForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const token = new FormData(loginForm).get("token");
+const hostOf = (url) => {
   try {
-    await api("/api/login", { method: "POST", body: { token } });
-    loginDialog.close();
-    await loadSession();
-    toast("Logged in");
-    route();
-  } catch (error) {
-    loginError.textContent = error.message;
-    loginError.hidden = false;
+    return new URL(url).host;
+  } catch {
+    return url;
   }
-});
+};
 
 // --- Shared pieces -------------------------------------------------------------------
 
@@ -361,46 +334,39 @@ async function overviewPage(gen) {
   renderHealth(status);
   const { pauses, sessions, costs, work, running } = status;
 
-  const actions = [];
-  if (canWrite()) {
-    actions.push(
-      h(
-        "button",
-        { type: "button", onclick: act("Polling now", "/api/actions/poll-now") },
-        "Poll now",
-      ),
-      pauses.manual
-        ? h(
-            "button",
-            {
-              type: "button",
-              class: "primary",
-              onclick: act("Pickups resumed", "/api/actions/resume-pickups"),
-            },
-            "Resume pickups",
-          )
-        : h(
-            "button",
-            {
-              type: "button",
-              class: "danger",
-              onclick: act("Pickups paused", "/api/actions/pause-pickups"),
-            },
-            "Pause pickups",
-          ),
-    );
-  } else if (session?.writesEnabled) {
-    actions.push(h("button", { type: "button", onclick: openLogin }, "Log in for actions"));
-  }
+  const actions = [
+    h(
+      "button",
+      { type: "button", onclick: act("Polling now", "/api/actions/poll-now") },
+      "Poll now",
+    ),
+    pauses.manual
+      ? h(
+          "button",
+          {
+            type: "button",
+            class: "primary",
+            onclick: act("Pickups resumed", "/api/actions/resume-pickups"),
+          },
+          "Resume pickups",
+        )
+      : h(
+          "button",
+          {
+            type: "button",
+            class: "danger",
+            onclick: act("Pickups paused", "/api/actions/pause-pickups"),
+          },
+          "Pause pickups",
+        ),
+  ];
 
   const banners = [];
-  const clear = canWrite()
-    ? h(
-        "button",
-        { type: "button", onclick: act("Usage pause cleared", "/api/actions/clear-usage-pause") },
-        "Clear pause",
-      )
-    : null;
+  const clear = h(
+    "button",
+    { type: "button", onclick: act("Usage pause cleared", "/api/actions/clear-usage-pause") },
+    "Clear pause",
+  );
   if (pauses.manual) {
     banners.push(
       h(
@@ -922,7 +888,6 @@ async function configPage(gen) {
   const config = await api("/api/config");
   if (gen !== generation) return;
 
-  const editable = canWrite();
   /** Working copy of the override document. */
   const overrides = structuredClone(config.overrides);
   const original = JSON.stringify(overrides);
@@ -942,7 +907,7 @@ async function configPage(gen) {
 
   const dirty = () => {
     const changed = JSON.stringify(overrides) !== original;
-    saveButton.disabled = !changed || !editable;
+    saveButton.disabled = !changed;
     discard.disabled = !changed;
     status.textContent = changed
       ? "Unsaved changes. Saved values apply to the running dispatcher without a restart."
@@ -972,20 +937,18 @@ async function configPage(gen) {
       control = h("input", {
         type: "checkbox",
         checked: Boolean(value),
-        disabled: !editable,
         onchange: (e) => onInput(e.target.checked),
         "aria-label": entry.key,
       });
     } else if (entry.type === "enum") {
       control = h(
         "select",
-        { disabled: !editable, onchange: (e) => onInput(e.target.value), "aria-label": entry.key },
+        { onchange: (e) => onInput(e.target.value), "aria-label": entry.key },
         entry.nullable ? h("option", { value: "" }, "(unset)") : null,
         entry.options.map((o) => h("option", { value: o, selected: value === o }, o)),
       );
     } else if (entry.type === "json") {
       control = h("textarea", {
-        disabled: !editable,
         oninput: (e) => onInput(e.target.value),
         "aria-label": entry.key,
         value: formValue(entry, value),
@@ -998,30 +961,28 @@ async function configPage(gen) {
         min: entry.min,
         max: entry.max,
         placeholder: entry.nullable ? "(unset)" : "",
-        disabled: !editable,
         value: formValue(entry, value),
         oninput: (e) => onInput(e.target.value),
         "aria-label": entry.key,
       });
     }
-    const reset =
-      editable && overridden
-        ? h(
-            "button",
-            {
-              type: "button",
-              class: "ghost",
-              title: "Remove the dashboard override and use env/file/default",
-              onclick: () => {
-                Reflect.deleteProperty(overrides, entry.key);
-                dirty();
-                reset.disabled = true;
-                reset.textContent = "Reset on save";
-              },
+    const reset = overridden
+      ? h(
+          "button",
+          {
+            type: "button",
+            class: "ghost",
+            title: "Remove the dashboard override and use env/file/default",
+            onclick: () => {
+              Reflect.deleteProperty(overrides, entry.key);
+              dirty();
+              reset.disabled = true;
+              reset.textContent = "Reset on save";
             },
-            "Reset",
-          )
-        : null;
+          },
+          "Reset",
+        )
+      : null;
     const el = h(
       "div",
       { class: "field" },
@@ -1091,25 +1052,6 @@ async function configPage(gen) {
   );
   queueMicrotask(dirty);
 
-  const notice = !session?.writesEnabled
-    ? h(
-        "div",
-        { class: "banner info" },
-        h(
-          "span",
-          { class: "grow" },
-          "Read-only: set DASHBOARD_TOKEN on the dispatcher to edit config here.",
-        ),
-      )
-    : !session.authenticated
-      ? h(
-          "div",
-          { class: "banner info" },
-          h("span", { class: "grow" }, "Log in to change config."),
-          h("button", { type: "button", onclick: openLogin }, "Log in"),
-        )
-      : null;
-
   return [
     h(
       "div",
@@ -1121,7 +1063,6 @@ async function configPage(gen) {
         config.configFile ? `File: ${config.configFile}` : "No config file",
       ),
     ),
-    notice,
     form,
     h(
       "div",
@@ -1212,6 +1153,10 @@ function logsPage() {
   source.onmessage = (event) => {
     if (paused) pending.push(event.data);
     else add(event.data);
+  };
+  // A 401 closes the stream for good; network blips reconnect on their own.
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED) void loadSession();
   };
   api("/api/logs")
     .then((data) => {
@@ -1351,9 +1296,8 @@ async function route() {
   await paint(true);
   if (refresh) {
     const timer = setInterval(() => {
-      // Don't repaint under someone reading a dialog or selecting text.
-      if (!document.hidden && !loginDialog.open && String(window.getSelection() ?? "") === "")
-        void paint(false);
+      // Don't repaint under someone selecting text.
+      if (!document.hidden && String(window.getSelection() ?? "") === "") void paint(false);
     }, REFRESH_MS);
     const previous = teardown;
     teardown = () => {

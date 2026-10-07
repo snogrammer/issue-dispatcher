@@ -179,6 +179,16 @@ describe("loadConfig from env", () => {
     );
   });
 
+  it("takes an optional http(s) home URL for the dashboard's landing page", () => {
+    expect(load(REQUIRED_ENV).dashboard.homeUrl).toBeUndefined();
+    expect(
+      load({ ...REQUIRED_ENV, DASHBOARD_HOME_URL: "https://blog.example.com" }).dashboard.homeUrl,
+    ).toBe("https://blog.example.com");
+    expect(loadError({ ...REQUIRED_ENV, DASHBOARD_HOME_URL: "javascript:alert(1)" })).toContain(
+      "dashboard.homeUrl (DASHBOARD_HOME_URL)",
+    );
+  });
+
   it("rejects malformed repo names", () => {
     expect(loadError({ ...REQUIRED_ENV, REPOS: "just-a-name" })).toContain(
       "repos.0 (REPOS): expected owner/repo",

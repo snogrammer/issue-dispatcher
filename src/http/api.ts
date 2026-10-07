@@ -5,13 +5,15 @@ import type { ConfigManager } from "../config/overrides.js";
 import type { Config } from "../config/schema.js";
 import { silentLogger, type LogBuffer, type Logger } from "../log.js";
 import type { StateStore } from "../state/store.js";
-import type { DashboardAuth } from "./auth.js";
+import { LOGIN_DISABLED, type DashboardAuth } from "./auth.js";
 
 /**
- * The dashboard's JSON API under /api. Reads are open like /status; anything
- * that changes state goes through `auth.authorizeWrite` and is logged with
- * `dashboard: true` so the log shows who-did-what alongside the engine's own
- * lines.
+ * The dashboard's JSON API under /api. Only the session check, login and
+ * logout answer without a session (the landing page needs them); the server
+ * refuses every other route before it gets here (see PUBLIC_API in
+ * server.ts). Anything that changes state also goes through
+ * `auth.authorizeWrite` and is logged with `dashboard: true` so the log shows
+ * who-did-what alongside the engine's own lines.
  */
 
 export interface DashboardControl {
@@ -81,9 +83,15 @@ export async function handleApi(
   const log = deps.log ?? silentLogger;
 
   if (path === "/api/session" && method === "GET") {
+    const homeUrl = deps.config.dashboard.homeUrl ?? null;
+    // Logged out, say only what the landing page shows.
+    if (!deps.auth.isAuthenticated(request)) {
+      return ok({ authenticated: false, loginEnabled: deps.auth.loginEnabled, homeUrl });
+    }
     return ok({
-      authenticated: deps.auth.isAuthenticated(request),
-      writesEnabled: deps.auth.writesEnabled,
+      authenticated: true,
+      loginEnabled: true,
+      homeUrl,
       configEditable: deps.configManager !== undefined,
       version: deps.version,
       giteaUrl: deps.config.gitea.url,
@@ -93,9 +101,7 @@ export async function handleApi(
   }
 
   if (path === "/api/login" && method === "POST") {
-    if (!deps.auth.writesEnabled) {
-      throw new HttpError(403, "writes are disabled: set DASHBOARD_TOKEN to enable them");
-    }
+    if (!deps.auth.loginEnabled) throw new HttpError(403, LOGIN_DISABLED);
     const body = await readJson(request);
     const result = deps.auth.login(isObject(body) ? body.token : undefined);
     if (result === undefined) throw new HttpError(429, "too many failed logins; wait a minute");

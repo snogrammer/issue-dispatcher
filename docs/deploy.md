@@ -161,6 +161,7 @@ Claude runs project commands without approval prompts
 `STATUS_HOST=0.0.0.0` and publishes the port on
 `${DISPATCHER_BIND_ADDR}:${DISPATCHER_HOST_PORT}` (default `127.0.0.1:8080`).
 A Caddy container on the shared network proxies to `claude-dispatcher:8080`; a
-Caddy on the host proxies to `127.0.0.1:8080`. Set `DASHBOARD_TOKEN` to allow
-config edits and actions, and put it behind HTTPS (a reverse proxy) if it's
-reachable beyond localhost.
+Caddy on the host proxies to `127.0.0.1:8080`. Without a session, visitors
+see only a landing page (and `/healthz`); set `DASHBOARD_TOKEN` to be able to
+log in, optionally `DASHBOARD_HOME_URL` for the landing page's link, and put it
+behind HTTPS (a reverse proxy) if it's reachable beyond localhost.

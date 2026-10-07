@@ -24,16 +24,22 @@ const BASE_ENV = {
   POLL_INTERVAL_S: "60",
 };
 
+const BEARER = { authorization: `Bearer ${DASHBOARD_TOKEN}` };
+
 interface Options {
   snapshot?: Partial<EngineSnapshot>;
-  dashboardToken?: string;
+  /** `null` leaves DASHBOARD_TOKEN unset. */
+  dashboardToken?: string | null;
+  homeUrl?: string;
 }
 
 function deps(options: Options = {}) {
-  const env =
-    options.dashboardToken === undefined
-      ? BASE_ENV
-      : { ...BASE_ENV, DASHBOARD_TOKEN: options.dashboardToken };
+  const token = options.dashboardToken === undefined ? DASHBOARD_TOKEN : options.dashboardToken;
+  const env = {
+    ...BASE_ENV,
+    ...(token === null ? {} : { DASHBOARD_TOKEN: token }),
+    ...(options.homeUrl === undefined ? {} : { DASHBOARD_HOME_URL: options.homeUrl }),
+  };
   const layers = readConfigLayers({ env });
   const config = buildConfig(layers, {});
   const clock = { now: T0 };
@@ -102,16 +108,23 @@ describe("status server", () => {
     return `http://127.0.0.1:${String(server.port)}`;
   }
 
+  /** `auth` sends the dashboard token as a bearer, like a script would. */
   async function call(
     path: string,
-    init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+    init: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+      auth?: boolean;
+    } = {},
   ) {
-    const headers: Record<string, string> = { ...init.headers };
+    const headers: Record<string, string> = { ...(init.auth ? BEARER : {}), ...init.headers };
     if (init.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(`${base()}${path}`, {
       method: init.method ?? "GET",
       headers,
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      redirect: "manual",
     });
     const text = await response.text();
     let body: Record<string, unknown>;
@@ -155,7 +168,7 @@ describe("status server", () => {
     store.finishRun(run, { exit: "success", costUsd: 0.5, inputTokens: 10, outputTokens: 2 });
     server = await startStatusServer(d, 0);
 
-    const { code, body } = await call("/status");
+    const { code, body } = await call("/status", { auth: true });
 
     expect(code).toBe(200);
     expect(body).toMatchObject({
@@ -189,8 +202,8 @@ describe("status server", () => {
   it("answers 404 for unknown paths and 405 for writes to read-only endpoints", async () => {
     const { d } = deps();
     server = await startStatusServer(d, 0);
-    expect((await call("/nope")).code).toBe(404);
-    expect((await call("/api/nope")).code).toBe(404);
+    expect((await call("/nope", { auth: true })).code).toBe(404);
+    expect((await call("/api/nope", { auth: true })).code).toBe(404);
     expect((await call("/status", { method: "POST" })).code).toBe(405);
     expect((await call("/index.html", { method: "POST" })).code).toBe(405);
   });
@@ -199,12 +212,14 @@ describe("status server", () => {
     it("serves the app and brand assets with a restrictive CSP", async () => {
       const { d } = deps();
       server = await startStatusServer(d, 0);
-      const page = await call("/");
+      const page = await call("/", { auth: true });
       expect(page.code).toBe(200);
       expect(page.headers.get("content-type")).toContain("text/html");
       expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
-      expect(String(page.body.text)).toContain("IssueDispatcher");
-      expect((await call("/app.js")).headers.get("content-type")).toContain("javascript");
+      expect(page.headers.get("vary")).toBe("cookie");
+      expect(String(page.body.text)).toContain('class="nav"');
+      const app = await call("/app.js", { auth: true });
+      expect(app.headers.get("content-type")).toContain("javascript");
       expect((await call("/brand/favicon/favicon.svg")).code).toBe(200);
     });
 
@@ -220,10 +235,13 @@ describe("status server", () => {
       server = await startStatusServer(d, 0);
       const port = server.port;
       const code = await new Promise<number | undefined>((resolve, reject) => {
-        httpRequest({ host: "127.0.0.1", port, path: "/brand/../../package.json" }, (res) => {
-          res.resume();
-          resolve(res.statusCode);
-        })
+        httpRequest(
+          { host: "127.0.0.1", port, path: "/brand/../../package.json", headers: BEARER },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode);
+          },
+        )
           .on("error", reject)
           .end();
       });
@@ -232,21 +250,86 @@ describe("status server", () => {
   });
 
   describe("auth", () => {
-    it("turns writes off when DASHBOARD_TOKEN isn't set", async () => {
-      const { d, store } = deps();
+    it("shows a logged-out visitor the landing page and nothing else", async () => {
+      const { d } = deps({ homeUrl: "https://blog.example.com" });
       server = await startStatusServer(d, 0);
-      expect((await call("/api/session")).body).toMatchObject({
+
+      const page = await call("/");
+      expect(page.code).toBe(200);
+      expect(page.headers.get("content-type")).toContain("text/html");
+      expect(String(page.body.text)).toContain("landing.js");
+      expect(String(page.body.text)).not.toContain('class="nav"');
+      for (const path of ["/landing.js", "/app.css", "/brand/favicon/favicon.svg"]) {
+        expect((await call(path)).code, path).toBe(200);
+      }
+      for (const path of ["/index.html", "/app.js", "/landing.html", "/nope"]) {
+        const result = await call(path);
+        expect(result.code, path).toBe(302);
+        expect(result.headers.get("location")).toBe("/");
+      }
+
+      for (const path of [
+        "/status",
+        "/api/runs",
+        "/api/costs",
+        "/api/config",
+        "/api/logs",
+        "/api/logs/stream",
+        "/api/work/org/a/1",
+        "/api/nope",
+      ]) {
+        const result = await call(path);
+        expect(result.code, path).toBe(401);
+        expect(result.body, path).toEqual({ error: "log in first" });
+      }
+      expect((await call("/healthz")).code).toBe(200);
+
+      // Only what the landing page shows: no Gitea URL, bot, version or endpoint list.
+      expect((await call("/api/session")).body).toEqual({
         authenticated: false,
-        writesEnabled: false,
+        loginEnabled: true,
+        homeUrl: "https://blog.example.com",
+      });
+      expect((await call("/api/login")).body).toEqual({ error: "not found" });
+    });
+
+    it("lets a cookie session or a bearer token see everything", async () => {
+      const { d } = deps();
+      server = await startStatusServer(d, 0);
+      const headers = await login();
+      expect(String((await call("/", { headers })).body.text)).toContain('class="nav"');
+      expect((await call("/app.js", { headers })).code).toBe(200);
+      expect((await call("/status", { headers })).code).toBe(200);
+      expect((await call("/api/runs", { headers })).code).toBe(200);
+      expect((await call("/api/session", { headers })).body).toMatchObject({
+        authenticated: true,
+        homeUrl: null,
         giteaUrl: "https://gitea.example.com",
+        version: "1.2.3",
       });
-      const action = await call("/api/actions/pause-pickups", {
-        method: "POST",
-        headers: { authorization: `Bearer ${DASHBOARD_TOKEN}` },
+      expect((await call("/status", { auth: true })).code).toBe(200);
+      expect((await call("/api/costs", { auth: true })).code).toBe(200);
+      expect(
+        (await call("/status", { headers: { authorization: "Bearer wrong-token-0123456789" } }))
+          .code,
+      ).toBe(401);
+    });
+
+    it("locks everything when DASHBOARD_TOKEN isn't set", async () => {
+      const { d, store } = deps({ dashboardToken: null });
+      server = await startStatusServer(d, 0);
+      expect((await call("/api/session")).body).toEqual({
+        authenticated: false,
+        loginEnabled: false,
+        homeUrl: null,
       });
-      expect(action.code).toBe(403);
-      expect(String(action.body.error)).toContain("DASHBOARD_TOKEN");
-      expect((await call("/api/login", { method: "POST", body: { token: "x" } })).code).toBe(403);
+      expect(String((await call("/")).body.text)).toContain("landing.js");
+      expect((await call("/status", { auth: true })).code).toBe(401);
+      const action = await call("/api/actions/pause-pickups", { method: "POST", auth: true });
+      expect(action.code).toBe(401);
+      const login = await call("/api/login", { method: "POST", body: { token: "x" } });
+      expect(login.code).toBe(403);
+      expect(String(login.body.error)).toContain("DASHBOARD_TOKEN");
       expect(store.getGovernor().manualPause).toBe(false);
     });
 
@@ -315,7 +398,7 @@ describe("status server", () => {
       const headers = { authorization: `Bearer ${DASHBOARD_TOKEN}` };
 
       await call("/api/actions/pause-pickups", { method: "POST", headers });
-      expect((await call("/status")).body).toMatchObject({ pauses: { manual: true } });
+      expect((await call("/status", { headers })).body).toMatchObject({ pauses: { manual: true } });
       await call("/api/actions/resume-pickups", { method: "POST", headers });
       expect(store.getGovernor().manualPause).toBe(false);
 
@@ -350,25 +433,25 @@ describe("status server", () => {
       seed(store);
       server = await startStatusServer(d, 0);
 
-      const all = await call("/api/runs");
+      const all = await call("/api/runs", { auth: true });
       expect((all.body.runs as unknown[]).length).toBe(4);
-      const page = await call("/api/runs?limit=2");
+      const page = await call("/api/runs?limit=2", { auth: true });
       expect((page.body.runs as { id: number }[]).map((r) => r.id)).toEqual([4, 3]);
-      const next = await call(`/api/runs?limit=2&before=${String(page.body.next)}`);
+      const next = await call(`/api/runs?limit=2&before=${String(page.body.next)}`, { auth: true });
       expect((next.body.runs as { id: number }[]).map((r) => r.id)).toEqual([2, 1]);
 
-      const opus = await call("/api/runs?model=opus&repo=org/a");
+      const opus = await call("/api/runs?model=opus&repo=org/a", { auth: true });
       expect((opus.body.runs as { id: number }[]).map((r) => r.id)).toEqual([1]);
-      const running = await call("/api/runs?exit=running");
+      const running = await call("/api/runs?exit=running", { auth: true });
       expect((running.body.runs as { issue: number }[]).map((r) => r.issue)).toEqual([3]);
-      expect((await call("/api/runs?limit=lots")).code).toBe(400);
+      expect((await call("/api/runs?limit=lots", { auth: true })).code).toBe(400);
     });
 
     it("totals cost by day, repo and model", async () => {
       const { d, store } = deps();
       seed(store);
       server = await startStatusServer(d, 0);
-      const { body } = await call("/api/costs?days=7");
+      const { body } = await call("/api/costs?days=7", { auth: true });
       expect(body).toMatchObject({
         days: 7,
         since: "2026-05-26T00:00:00.000Z",
@@ -391,11 +474,11 @@ describe("status server", () => {
       seed(store);
       store.claim("org/a", 1, { branch: "claude/1-x" });
       server = await startStatusServer(d, 0);
-      const { code, body } = await call("/api/work/org/a/1");
+      const { code, body } = await call("/api/work/org/a/1", { auth: true });
       expect(code).toBe(200);
       expect(body).toMatchObject({ repo: "org/a", issue: 1, work: { branch: "claude/1-x" } });
       expect((body.runs as unknown[]).length).toBe(2);
-      expect((await call("/api/work/org/a/99")).code).toBe(404);
+      expect((await call("/api/work/org/a/99", { auth: true })).code).toBe(404);
     });
   });
 
@@ -405,7 +488,7 @@ describe("status server", () => {
     it("shows each key's value and source, with secrets redacted", async () => {
       const { d } = deps({ dashboardToken: DASHBOARD_TOKEN });
       server = await startStatusServer(d, 0);
-      const { body } = await call("/api/config");
+      const { body } = await call("/api/config", { auth: true });
       const text = JSON.stringify(body);
       expect(text).not.toContain(TOKEN);
       expect(text).not.toContain(DASHBOARD_TOKEN);
@@ -508,9 +591,9 @@ describe("status server", () => {
       const { d, logs } = deps();
       logs.push('{"msg":"one"}');
       server = await startStatusServer(d, 0);
-      expect((await call("/api/logs")).body).toEqual({ lines: ['{"msg":"one"}'] });
+      expect((await call("/api/logs", { auth: true })).body).toEqual({ lines: ['{"msg":"one"}'] });
 
-      const response = await fetch(`${base()}/api/logs/stream`);
+      const response = await fetch(`${base()}/api/logs/stream`, { headers: BEARER });
       expect(response.headers.get("content-type")).toContain("text/event-stream");
       const reader = response.body?.getReader();
       if (!reader) throw new Error("no stream body");

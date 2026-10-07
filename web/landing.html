@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0B1726" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>IssueDispatcher</title>
+    <link rel="icon" href="/brand/favicon/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/brand/favicon/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/brand/favicon/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/brand/web/brand-variables.css" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/landing.js"></script>
+  </head>
+  <body class="landing">
+    <main class="landing-main">
+      <img
+        class="landing-logo"
+        src="/brand/svg/issuedispatcher-stacked-light.svg"
+        alt="IssueDispatcher"
+      />
+      <form id="login-form" class="landing-form">
+        <label for="login-token" class="visually-hidden">Dashboard token</label>
+        <input
+          id="login-token"
+          name="token"
+          type="password"
+          autocomplete="current-password"
+          placeholder="Dashboard token"
+          required
+        />
+        <button type="submit" class="primary">Log in</button>
+        <p class="error" id="login-error" role="alert" hidden></p>
+      </form>
+    </main>
+    <footer class="landing-foot">
+      <a id="home-link" rel="noreferrer" hidden></a>
+    </footer>
+  </body>
+</html>

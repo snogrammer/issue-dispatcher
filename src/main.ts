@@ -162,8 +162,11 @@ async function start(
     log.info("status server and dashboard listening", {
       host: config.status.host,
       port: server.port,
-      dashboardWrites: config.dashboard.token !== undefined,
+      dashboardLocked: config.dashboard.token === undefined,
     });
+    if (config.dashboard.token === undefined) {
+      log.warn("dashboard is locked: set DASHBOARD_TOKEN to log in");
+    }
   }
 
   let stopping = false;

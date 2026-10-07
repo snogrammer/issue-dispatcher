@@ -17,7 +17,7 @@ proxy sends `X-Forwarded-Proto: https`.
 | **Overview**     | Health and last poll, sessions in use, pause banners (usage limit, near-limit, manual pause, CI backed up), runs in progress, held work, cost tiles, recent runs, repos |
 | **Work**         | Each issue the bot holds: state, branch, PR stack, fix rounds. Click an issue for its run timeline, with model, effort, outcome, cost, tokens and errors                |
 | **Runs & costs** | Daily cost chart, cost by repo and by model for 7/30/90 days, and the full run history filtered by repo, phase, outcome or model                                        |
-| **Config**       | Every runtime setting with its current value and where it comes from (default, file, env, dashboard); editable when logged in. Read-only settings are listed below      |
+| **Config**       | Every runtime setting with its current value and where it comes from (default, file, env, dashboard), editable. Read-only settings are listed below                     |
 | **Logs**         | The last 1,000 log lines, then live as they're written. Filter by level or text, pause, clear                                                                           |
 
 Overview and Work refresh every 5 seconds. Issue, PR and repo names link to
@@ -25,19 +25,26 @@ Gitea.
 
 ## Logging in
 
-Reading is open, like `/status`: repo names, issue numbers, costs and logs,
-never tokens. Changing anything needs `DASHBOARD_TOKEN`:
+Everything on the dashboard needs a login. A visitor without a session gets a
+landing page with the logo, a token field and, if `DASHBOARD_HOME_URL` is set,
+a link back to it (your blog, GitHub profile, …). Nothing else answers: other
+pages redirect to the landing page, `/status` and the API answer `401`. Only
+`/healthz` stays open, for the container healthcheck.
 
-- Unset (the default): the dashboard is read-only and nothing can be changed
-  through it.
-- Set (16+ characters, e.g. `openssl rand -hex 24`): **Log in** in the sidebar
-  and enter the token. The browser gets an HttpOnly, `SameSite=Strict` cookie
-  derived from the token (not the token itself), valid for 30 days. Rotating
-  the token logs everyone out.
+- `DASHBOARD_TOKEN` unset (the default): the dashboard is locked. The landing
+  page says login is disabled.
+- Set (16+ characters, e.g. `openssl rand -hex 24`): enter the token on the
+  landing page. The browser gets an HttpOnly, `SameSite=Strict` cookie derived
+  from the token (not the token itself), valid for 30 days, and lands on the
+  page it asked for (`/#/runs` stays `/#/runs`). Rotating the token logs
+  everyone out; an open dashboard goes back to the landing page on its next
+  request.
 
-Scripts can send `Authorization: Bearer <token>` instead:
+Scripts can send `Authorization: Bearer <token>` instead, for reads and
+writes alike:
 
 ```sh
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://127.0.0.1:8080/status
 curl -X POST -H "Authorization: Bearer $DASHBOARD_TOKEN" http://127.0.0.1:8080/api/actions/poll-now
 ```
 
@@ -47,7 +54,7 @@ is logged with `"dashboard": true`.
 
 ## Actions
 
-On the overview, when logged in:
+On the overview:
 
 - **Pause pickups / Resume pickups**: a kill switch. While paused, no new
   issue is started. Work already in progress (runs, CI fixes, review rounds,
@@ -93,15 +100,16 @@ dashboard again replaces them.
 
 ## API
 
-The dashboard uses a small JSON API, which is also usable from scripts:
+The dashboard uses a small JSON API, which is also usable from scripts with a
+bearer token. Only the session, login and logout endpoints answer without one:
 
-| Endpoint                                                                      | Notes                                                                                    |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `GET /api/session`                                                            | Whether writes are enabled and you're logged in; Gitea URL, bot, version                 |
-| `POST /api/login` `{"token": …}`, `POST /api/logout`                          | Session cookie                                                                           |
-| `GET /api/runs?repo&phase&exit&model&limit&before`                            | Run history, newest first; `exit=running` for unfinished runs. Page with `before=<next>` |
-| `GET /api/costs?days=30`                                                      | Totals per day, repo and model                                                           |
-| `GET /api/work/<owner>/<repo>/<issue>`                                        | One issue's work record and runs                                                         |
-| `GET /api/config`, `PUT /api/config` `{"overrides": {…}}`                     | Config view; replace the override document (auth)                                        |
-| `POST /api/actions/{pause-pickups,resume-pickups,clear-usage-pause,poll-now}` | Auth                                                                                     |
-| `GET /api/logs?limit`, `GET /api/logs/stream`                                 | Recent lines; live lines as server-sent events                                           |
+| Endpoint                                                                      | Notes                                                                                      |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/session`                                                            | Public. Logged out: whether login is enabled, home URL. Logged in: Gitea URL, bot, version |
+| `POST /api/login` `{"token": …}`, `POST /api/logout`                          | Public. Session cookie                                                                     |
+| `GET /api/runs?repo&phase&exit&model&limit&before`                            | Run history, newest first; `exit=running` for unfinished runs. Page with `before=<next>`   |
+| `GET /api/costs?days=30`                                                      | Totals per day, repo and model                                                             |
+| `GET /api/work/<owner>/<repo>/<issue>`                                        | One issue's work record and runs                                                           |
+| `GET /api/config`, `PUT /api/config` `{"overrides": {…}}`                     | Config view; replace the override document                                                 |
+| `POST /api/actions/{pause-pickups,resume-pickups,clear-usage-pause,poll-now}` | Control actions                                                                            |
+| `GET /api/logs?limit`, `GET /api/logs/stream`                                 | Recent lines; live lines as server-sent events                                             |

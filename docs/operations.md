@@ -10,7 +10,7 @@ restart. See [dashboard.md](dashboard.md).
 
 A small HTTP server (`STATUS_PORT`, default `8080`, bound to `STATUS_HOST`,
 default `127.0.0.1`; `STATUS_PORT=0` turns it off) answers two read-only
-endpoints:
+endpoints, alongside the [dashboard](dashboard.md):
 
 - `GET /healthz`: `200` while the poll loop is alive, `503` once it hasn't
   finished a pass in 3 × `POLL_INTERVAL_S`. Use it as the container
@@ -22,9 +22,15 @@ endpoints:
   time (per repo), and the 20 most recent runs with model, effort, outcome and
   cost.
 
-`/status` shows repo names, issue numbers and costs, never tokens. Set
-`STATUS_HOST=0.0.0.0` only if it should be reachable from outside the
+`/healthz` is open, for healthchecks. `/status` needs the dashboard token
+(`Authorization: Bearer $DASHBOARD_TOKEN`) or a dashboard session, and answers
+`401` otherwise; it shows repo names, issue numbers and costs, never tokens.
+Set `STATUS_HOST=0.0.0.0` only if it should be reachable from outside the
 container.
+
+```sh
+curl -H "Authorization: Bearer $DASHBOARD_TOKEN" http://127.0.0.1:8080/status
+```
 
 ## Logs
 

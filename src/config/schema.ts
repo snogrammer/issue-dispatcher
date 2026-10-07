@@ -126,10 +126,15 @@ export const configSchema = z
         host: z.string().min(1).default("127.0.0.1"),
       })
       .prefault({}),
-    /** The web dashboard served by the status server; writes need the token. */
+    /**
+     * The web dashboard served by the status server. Everything but the
+     * landing page needs the token; without one it stays locked.
+     */
     dashboard: z
       .strictObject({
         token: z.string().min(16, "use at least 16 characters").optional(),
+        /** Where the landing page's "back" link goes (a blog, GitHub profile, …). */
+        homeUrl: z.url({ protocol: /^https?$/ }).optional(),
       })
       .prefault({}),
     /**

@@ -43,7 +43,7 @@ services:
       STATUS_HOST: 0.0.0.0
     # Caddy on ${SHARED_NETWORK} proxies to claude-dispatcher:8080; a Caddy on
     # the host (or elsewhere, with DISPATCHER_BIND_ADDR=0.0.0.0) uses this port.
-    # Set DASHBOARD_TOKEN to allow config edits from the dashboard.
+    # Set DASHBOARD_TOKEN to log in; without it the dashboard stays locked.
     ports:
       - "${DISPATCHER_BIND_ADDR:-127.0.0.1}:${DISPATCHER_HOST_PORT:-8080}:8080"
     volumes:

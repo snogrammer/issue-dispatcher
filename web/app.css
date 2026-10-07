@@ -136,6 +136,14 @@ h2 {
 .sidebar-foot button {
   width: 100%;
 }
+.session {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.session a {
+  color: var(--sidebar-text);
+}
 
 .health {
   display: flex;
@@ -637,6 +645,76 @@ input[type="checkbox"] {
 }
 .toast.bad {
   background: var(--id-orange);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- Landing page (logged out) -------------------------------------------- */
+
+/* Navy in both themes, like the sidebar, so the light logo always reads. */
+body.landing {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 0 16px;
+  background:
+    radial-gradient(ellipse at 50% 35%, rgba(38, 120, 255, 0.18), transparent 60%), var(--id-navy);
+  color: var(--sidebar-text);
+}
+.landing-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 48px 0;
+}
+.landing-logo {
+  width: min(300px, 70vw);
+  height: auto;
+}
+.landing-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: min(360px, 100%);
+}
+.landing-form input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  padding: 8px 12px;
+}
+.landing-form input::placeholder {
+  color: var(--sidebar-text);
+  opacity: 0.7;
+}
+.landing-form button {
+  padding: 8px 18px;
+}
+.landing-form .error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #ff8a70;
+}
+.landing-foot {
+  text-align: center;
+  padding: 0 0 24px;
+}
+.landing-foot a {
+  color: var(--sidebar-text);
+}
+.landing-foot a:hover {
+  color: #ffffff;
 }
 
 /* --- Small screens --------------------------------------------------------- */

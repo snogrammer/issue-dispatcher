@@ -14,6 +14,11 @@ import { staticFile } from "./static.js";
  * the dashboard (static files from `web/`) and its `/api` for people. It
  * binds to STATUS_HOST (127.0.0.1 by default), so nothing is reachable from
  * outside the container until an operator opts in.
+ *
+ * Once it is reachable, a visitor without a session gets the landing page and
+ * nothing else: `/healthz` (for the container healthcheck), the files the
+ * landing page needs, and the API calls it makes to log in. Everything else
+ * answers 401, or redirects to the landing page for files.
  */
 
 export interface ServerDeps extends Omit<StatusDeps, "config"> {
@@ -31,6 +36,13 @@ export interface StatusServer {
 }
 
 const SSE_HEARTBEAT_MS = 15_000;
+
+/** API routes the landing page uses before anyone has logged in. */
+const PUBLIC_API = new Set(["/api/session", "/api/login", "/api/logout"]);
+
+/** Static files the landing page needs; the dashboard's own shell and code stay behind login. */
+const PUBLIC_FILES = new Set(["/landing.js", "/app.css"]);
+const isPublicFile = (path: string) => PUBLIC_FILES.has(path) || path.startsWith("/brand/");
 
 /** Applied to every response; the CSP keeps the dashboard to its own files. */
 const SECURITY_HEADERS: Record<string, string> = {
@@ -66,10 +78,26 @@ export async function startStatusServer(
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://localhost");
     const path = url.pathname;
+    const authenticated = auth.isAuthenticated(request);
+    const refuse = () => {
+      sendJson(response, 401, { error: "log in first" });
+    };
+    // Only someone logged in gets the map of what's here.
+    const notFound = (endpoints: string[]) => {
+      sendJson(
+        response,
+        404,
+        authenticated ? { error: "not found", endpoints } : { error: "not found" },
+      );
+    };
 
     if (path === "/healthz" || path === "/status") {
       if (method !== "GET" && method !== "HEAD") {
         sendJson(response, 405, { error: "method not allowed" });
+        return;
+      }
+      if (path === "/status" && !authenticated) {
+        refuse();
         return;
       }
       if (path === "/healthz") {
@@ -82,13 +110,17 @@ export async function startStatusServer(
     }
 
     if (path.startsWith("/api/")) {
+      if (!authenticated && !PUBLIC_API.has(path)) {
+        refuse();
+        return;
+      }
       if (path === "/api/logs/stream" && method === "GET") {
         streamLogs(request, response, deps.logs);
         return;
       }
       const reply = await handleApi(apiDeps, request, url);
       if (reply === undefined) {
-        sendJson(response, 404, { error: "not found", endpoints: API_ENDPOINTS });
+        notFound(API_ENDPOINTS);
       } else {
         sendJson(response, reply.code, reply.body, reply.headers);
       }
@@ -99,18 +131,24 @@ export async function startStatusServer(
       sendJson(response, 405, { error: "method not allowed" });
       return;
     }
-    const file = await staticFile(path);
+    if (!authenticated && !isPublicFile(path) && path !== "/") {
+      // Back to the landing page; the hash (the page asked for) survives the redirect.
+      response.writeHead(302, { ...SECURITY_HEADERS, location: "/", "cache-control": "no-store" });
+      response.end();
+      return;
+    }
+    const served = !authenticated && path === "/" ? "/landing.html" : path;
+    const file = await staticFile(served);
     if (file === undefined) {
-      sendJson(response, 404, {
-        error: "not found",
-        endpoints: ["/", "/healthz", "/status", ...API_ENDPOINTS],
-      });
+      notFound(["/", "/healthz", "/status", ...API_ENDPOINTS]);
       return;
     }
     response.writeHead(200, {
       ...SECURITY_HEADERS,
       "content-type": file.type,
       "cache-control": "no-cache",
+      // "/" is the landing page or the dashboard depending on the session cookie.
+      vary: "cookie",
     });
     response.end(method === "HEAD" ? undefined : file.body);
   }

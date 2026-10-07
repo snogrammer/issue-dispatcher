@@ -2,11 +2,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
 /**
- * Who may change things from the dashboard. Reading stays open, like
- * /status. Config edits and control actions need DASHBOARD_TOKEN, sent as
+ * Who may see or change anything on the dashboard. Everything but /healthz
+ * and the landing page's login needs DASHBOARD_TOKEN, sent as
  * `Authorization: Bearer <token>` (scripts) or exchanged at /api/login for
- * a session cookie (the browser). Without a token configured, writes are off
- * entirely rather than open.
+ * a session cookie (the browser). Without a token configured, the dashboard
+ * is locked entirely rather than open.
  *
  * The cookie holds an HMAC of the token, not the token itself, so it changes
  * whenever the token is rotated and every session ends with it. Cookie-
@@ -21,6 +21,8 @@ export const SESSION_COOKIE = "idsession";
 /** Failed logins allowed per window before /api/login answers 429. */
 const MAX_FAILURES = 10;
 const FAILURE_WINDOW_MS = 60_000;
+
+export const LOGIN_DISABLED = "login is disabled: set DASHBOARD_TOKEN to enable it";
 
 export type AuthResult = { ok: true } | { ok: false; code: 401 | 403; error: string };
 
@@ -38,7 +40,7 @@ export class DashboardAuth {
         : createHmac("sha256", token).update("dashboard-session").digest();
   }
 
-  get writesEnabled(): boolean {
+  get loginEnabled(): boolean {
     return this.token !== undefined;
   }
 
@@ -48,12 +50,8 @@ export class DashboardAuth {
 
   /** May this request change something? */
   authorizeWrite(request: IncomingMessage): AuthResult {
-    if (!this.writesEnabled) {
-      return {
-        ok: false,
-        code: 403,
-        error: "writes are disabled: set DASHBOARD_TOKEN to enable them",
-      };
+    if (!this.loginEnabled) {
+      return { ok: false, code: 403, error: LOGIN_DISABLED };
     }
     if (this.bearer(request)) return { ok: true };
     if (!this.cookie(request)) return { ok: false, code: 401, error: "log in first" };

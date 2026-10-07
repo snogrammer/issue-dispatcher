@@ -36,7 +36,7 @@ services:
     # /healthz, /status and the web dashboard listen on 127.0.0.1 inside the
     # container by default.
     # To open the dashboard from the host, set STATUS_HOST=0.0.0.0 in .env
-    # (and DASHBOARD_TOKEN to allow changes) and uncomment:
+    # (and DASHBOARD_TOKEN to log in) and uncomment:
     # ports:
     #   - "127.0.0.1:8080:8080"
 

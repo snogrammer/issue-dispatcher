@@ -33,28 +33,6 @@
       <main id="view" class="view" tabindex="-1"></main>
     </div>
 
-    <dialog id="login" class="dialog">
-      <form id="login-form" method="dialog">
-        <h2>Log in</h2>
-        <p class="muted">
-          Enter the dashboard token (<code>DASHBOARD_TOKEN</code>) to change config and run actions.
-        </p>
-        <label for="login-token">Token</label>
-        <input
-          id="login-token"
-          name="token"
-          type="password"
-          autocomplete="current-password"
-          required
-        />
-        <p class="error" id="login-error" hidden></p>
-        <div class="row end">
-          <button type="button" class="ghost" id="login-cancel">Cancel</button>
-          <button type="submit" class="primary">Log in</button>
-        </div>
-      </form>
-    </dialog>
-
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </body>
 </html>
