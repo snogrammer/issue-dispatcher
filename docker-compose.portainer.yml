@@ -19,6 +19,9 @@
 #   mkdir -p /srv/claude-dispatcher/{data,workspaces}
 #   chown -R 10001:10001 /srv/claude-dispatcher
 #
+# Otherwise Docker creates them owned by root and startup fails with
+# "Data directory /data is not writable by uid 10001".
+#
 # Both directories can be emptied: state is rebuilt from Gitea labels and
 # checkouts are re-cloned.
 #

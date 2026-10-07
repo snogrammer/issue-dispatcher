@@ -72,6 +72,12 @@ chown -R 10001:10001 /srv/claude-dispatcher
 If the registry is private, add it under Portainer's registries so the host can
 pull the image.
 
+If the directories don't exist when the stack first starts, Docker creates them
+owned by root and the container exits at startup with
+`Data directory /data is not writable by uid 10001` (older images:
+`SqliteError: unable to open database file`). Run the `chown` above on the host
+paths and restart the stack.
+
 ## Publishing
 
 `.gitea/workflows/publish.yml` builds and pushes the image after CI passes on

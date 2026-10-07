@@ -1,10 +1,10 @@
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import Database from "better-sqlite3";
 
 import type { ActiveState } from "../conventions.js";
 import type { Phase } from "../config/schema.js";
+import { ensureWritableDir } from "../fs.js";
 import { MIGRATIONS } from "./migrations.js";
 
 /**
@@ -205,8 +205,14 @@ export class StateStore {
 
   /** Open (creating if needed) the database under `dataDir`. */
   static open(dataDir: string, options: StoreOptions = {}): StateStore {
-    mkdirSync(dataDir, { recursive: true });
-    const db = new Database(path.join(dataDir, DB_FILE));
+    ensureWritableDir(dataDir, "Data directory");
+    const file = path.join(dataDir, DB_FILE);
+    let db: Database.Database;
+    try {
+      db = new Database(file);
+    } catch (error) {
+      throw new Error(`Unable to open state database ${file}`, { cause: error });
+    }
     db.pragma("journal_mode = WAL");
     return new StateStore(db, options);
   }

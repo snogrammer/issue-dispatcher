@@ -13,6 +13,7 @@ import { ConfigManager, validateOverrides, type Overrides } from "./config/overr
 import type { Config } from "./config/schema.js";
 import { Engine } from "./engine/engine.js";
 import { prLifecycle } from "./engine/pr-lifecycle.js";
+import { ensureWritableDir } from "./fs.js";
 import { GiteaClient } from "./gitea/client.js";
 import { GiteaError } from "./gitea/http.js";
 import { startStatusServer } from "./http/server.js";
@@ -88,6 +89,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
   });
 
   // Paths aren't editable from the dashboard, so the base config finds the store.
+  // Check the workspace mount now rather than on the first clone.
+  ensureWritableDir(base.paths.workspaceDir, "Workspace directory");
   const store = StateStore.open(base.paths.dataDir);
   const { config, overrides } = withSavedOverrides(layers, base, store.getConfigOverrides(), log);
   log.setLevel(config.logLevel);
