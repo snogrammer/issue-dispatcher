@@ -70,7 +70,9 @@ export type EngineGitea = Pick<
   | "removeLabel"
   | "listPulls"
   | "createIssue"
+  | "editIssue"
   | "addDependency"
+  | "removeDependency"
   | "closeIssue"
   | "countWorkflowRuns"
 >;
@@ -799,9 +801,9 @@ export class Engine {
   // --- Questions ------------------------------------------------------------
 
   /**
-   * File the report's questions for the human. Blocking ones stop here (the
-   * issue waits for answers); otherwise the lifecycle carries on and the
-   * source issue gets a note linking what was filed.
+   * Add the report's questions to the source's questions issue. Blocking ones
+   * stop here (the issue waits for answers); otherwise the lifecycle carries
+   * on and the source issue gets a note linking the questions issue.
    */
   private async afterSuccess(
     context: WorkContext,
@@ -810,19 +812,19 @@ export class Engine {
     workspace: WorkspaceLike,
   ): Promise<void> {
     const filed = await this.questions.fileFromReport(context, report);
-    const links = (issues: Issue[]) => issues.map((issue) => `#${String(issue.number)}`).join(", ");
-    if (filed.blocking.length > 0) {
+    const where = filed.issue === undefined ? "" : `#${String(filed.issue.number)}`;
+    if (filed.blocking) {
       await this.actions().block(
         context,
-        `Claude needs answers before it can continue: ${links(filed.blocking)}. Reply on those issues or close them; work resumes automatically.`,
+        `Claude needs answers before it can continue: see ${where}. Tick an option and reply there, or close it to go with the ticked options; work resumes automatically.`,
       );
       return;
     }
-    if (filed.created.length > 0) {
+    if (filed.added > 0) {
       await this.gitea.createComment(
         context.repo.ref,
         context.issue.number,
-        `Filed for @${this.config.humanReviewer} to look at later: ${links(filed.created)}. Work continues.`,
+        `Added ${String(filed.added)} question${filed.added === 1 ? "" : "s"} for @${this.config.humanReviewer} to ${where}. Work continues.`,
       );
     }
     await this.lifecycle.afterRun(context, phase, report, workspace, this.actions());
@@ -841,9 +843,7 @@ export class Engine {
     if (answers === "pending") return true;
 
     const phase: Phase = context.work.prStack.length > 0 ? "address-review" : "implement";
-    const details: RunDetails = {
-      answers: answers.map(({ question, answer }) => ({ question, answer })),
-    };
+    const details: RunDetails = { answers: answers.answers };
     // A human answered: the PR gets a fresh set of fix rounds, or the next
     // red CI would escalate again straight away.
     const fresh =
@@ -856,11 +856,11 @@ export class Engine {
     }
 
     const next = await this.setState(context, phase === "implement" ? "working" : "in-review");
-    await this.questions.closeAnswered(next, answers);
+    await this.questions.resolve(next, answers);
     await this.gitea.createComment(
       next.repo.ref,
       next.issue.number,
-      `Answers received on ${answers.map((a) => `#${String(a.issue.number)}`).join(", ")}. Continuing.`,
+      `Answers received on #${String(answers.issue.number)}. Continuing.`,
     );
     this.log.info("resumed with answers", {
       repo: next.repo.fullName,

@@ -391,14 +391,15 @@ describe("after a run", () => {
       report: report(1, {
         outcome: "needs_human",
         branches: [],
-        followups: [{ title: "Which API?", body: "v1 or v2", blocking: true }],
+        followups: [{ title: "Which API?", body: "v1 or v2", blocking: true, options: [] }],
       }),
     }));
     await cycle(engine);
     expect(gitea.labelNames(A, 1)).toEqual(["claude:blocked"]);
-    expect(gitea.issue(A, 2).title).toBe("Question from #1: Which API?");
+    expect(gitea.issue(A, 2).title).toBe("Questions for #1: Issue 1");
+    expect(gitea.issue(A, 2).body).toContain("### 🛑 Blocking: Which API?");
     expect(gitea.commentsOn(A, 1).at(-1)).toContain(
-      "Claude needs answers before it can continue: #2.",
+      "Claude needs answers before it can continue: see #2.",
     );
   });
 });

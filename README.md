@@ -15,7 +15,8 @@ to a bot user and the dispatcher:
 2. pushes the branch and opens a pull request (or a stack of them);
 3. waits for CI, sends failures and review feedback back to Claude, and merges
    when CI is green;
-4. files questions and decisions it wants confirmed as issues for a human;
+4. collects questions and decisions it wants confirmed in one issue per ticket
+   for a human;
 5. closes the issue and picks up the next one.
 
 It works on one issue per repo at a time, keeps Claude's usage limits and your
@@ -32,7 +33,7 @@ Gitea.
  Gitea  ◀─ poll ─┤ engine: one slot per repo, labels as state, sessions in SQLite   │
  issues, PRs,    │   ├─ runner: claude -p (stream-json) in a per-repo git workspace │
  labels, CI      │   ├─ PR lifecycle: open, watch CI, fix rounds, merge, stacks     │
-                 │   ├─ questions: follow-ups and blocking questions as issues      │
+                 │   ├─ questions: one checklist issue per ticket for a human       │
                  │   └─ governors: usage limits, CI queue, session cap              │
                  └──────────────────────────────────────────────────────────────────┘
 ```
@@ -45,7 +46,7 @@ Gitea.
 - **Claude's final answer is a structured report** (validated JSON): branches
   to open as PRs, decisions it took on its own, and questions for a human.
 - **Humans steer with Gitea itself:** assign or unassign, priority and
-  model/effort labels, review comments, `/merge`, answering question issues.
+  model/effort labels, review comments, `/merge`, ticking and replying on questions issues.
 
 More: [workflow](docs/workflow.md) · [configuration](docs/config.md) ·
 [labels](docs/labels.md) · [deployment](docs/deploy.md) ·

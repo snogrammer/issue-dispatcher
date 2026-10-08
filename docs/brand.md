@@ -7,8 +7,9 @@
 **IssueDispatcher** is the product name. Use it in prose, headings, page titles
 and anything a person reads. `claude-dispatcher` stays as the repository,
 package, container image and compose service name, and as the marker in the
-issues it files (`<!-- claude-dispatcher:question … -->`), which state recovery
-parses, so it must never change.
+issues it files (`<!-- claude-dispatcher:questions … -->`,
+`<!-- claude-dispatcher:item … -->`), which state recovery parses, so it must
+never change.
 
 Tagline: **Turn Gitea issues into autonomous Claude Code work.**
 

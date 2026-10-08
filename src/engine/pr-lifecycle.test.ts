@@ -35,7 +35,9 @@ describe("opening pull requests", () => {
     await toReview(fixture);
 
     // The decision to confirm was filed as question #2, so the PR is #3.
-    expect(fixture.gitea.issue(A, 2).title).toBe("Confirm decision on #1: Session store?");
+    expect(fixture.gitea.issue(A, 2).body).toContain(
+      "### Decision to confirm: Session store?\n\n**Why:** No new infra.\n\n- [x] cookies (chosen)\n- [ ] redis",
+    );
     const pull = fixture.gitea.pull(A, 3);
     expect(pull).toMatchObject({
       title: "T",
@@ -253,9 +255,12 @@ describe("fixing CI", () => {
     const [ticket] = gitea.filedIssues(A);
     expect(ticket).toMatchObject({
       number: 3,
-      title: "Help needed on #1: CI is still failing on #2 after 2 rounds",
+      title: "Questions for #1: Add login",
       assignees: [{ login: REVIEWER }],
     });
+    expect(ticket?.body).toContain(
+      "### 🛑 Blocking: Help needed on #1: CI is still failing on #2 after 2 rounds",
+    );
     expect(ticket?.labels.map((l) => l.name)).toEqual(["claude:question"]);
     expect(ticket?.body).toContain("(head sha-3)");
     expect(ticket?.body).toMatch(/Failing jobs:\n\n- \[lint\]\(.+\)/);
@@ -287,7 +292,9 @@ describe("fixing CI", () => {
     expect(resumed?.phase).toBe("address-review");
     expect(resumed?.prompt).toContain("regenerate it");
     expect(store.getWork(A, 1)).toMatchObject({ state: "in-review", fixAttempts: 0 });
-    expect(gitea.issue(A, 3).state).toBe("closed");
+    // Answered: no longer blocking #1, but kept open for anything else on it.
+    expect(gitea.issue(A, 3).state).toBe("open");
+    expect(gitea.dependencies.get(`${A}#1`)).toEqual([]);
 
     // The next red CI gets a fix round again instead of another ticket.
     gitea.setStatus("sha-3", "failure");
@@ -499,6 +506,7 @@ describe("stack rebases", () => {
             title: "Which version of the login form wins?",
             body: "main changed the same lines.",
             blocking: true,
+            options: ["Keep main's form", "Keep ours"],
           },
         ],
       }),
@@ -509,7 +517,8 @@ describe("stack rebases", () => {
 
     expect(store.getWork(A, 1)).toMatchObject({ state: "blocked", rebaseFrom: "sha-1" });
     const question = gitea.filedIssues(A).at(-1);
-    expect(question?.title).toBe("Question from #1: Which version of the login form wins?");
+    expect(question?.title).toBe("Questions for #1: Add login");
+    expect(question?.body).toContain("- [x] Keep main's form (recommended)\n- [ ] Keep ours");
     expect(gitea.dependencies.get(`${A}#1`)).toEqual([question?.number]);
   });
 

@@ -174,6 +174,17 @@ export class GiteaClient {
     });
   }
 
+  /** Undo addDependency: `index` is no longer blocked by `blocker`. */
+  async removeDependency(
+    { owner, name }: RepoRef,
+    index: number,
+    blocker: { repo: RepoRef; index: number },
+  ): Promise<void> {
+    await this.http.request("DELETE", p`/repos/${owner}/${name}/issues/${index}/dependencies`, {
+      body: { owner: blocker.repo.owner, repo: blocker.repo.name, index: blocker.index },
+    });
+  }
+
   /** Issues that block `index`. */
   listDependencies({ owner, name }: RepoRef, index: number): Promise<Issue[]> {
     return this.http.paginate(p`/repos/${owner}/${name}/issues/${index}/dependencies`);

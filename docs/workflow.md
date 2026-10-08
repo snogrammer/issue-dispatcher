@@ -58,25 +58,32 @@ them globally:
 
 Claude doesn't stop to ask when it can pick a sensible option: it takes the
 option it recommends and records the decision. Its report can still raise
-questions, and the dispatcher files each one as an issue labeled
-`claude:question`, assigned to `HUMAN_REVIEWER`:
+questions. The dispatcher collects them all in **one issue per ticket**,
+`Questions for #n: <title>`, labeled `claude:question` and assigned to
+`HUMAN_REVIEWER`. Later rounds add to the same issue and never ask the same
+question twice. Each question is a section with checkboxes, like plan mode:
 
-- **Decisions to confirm** (`Confirm decision on #n: …`): work continued with
-  Claude's choice. Reply if it should change.
-- **Follow-ups** (`Question from #n: …`): things noticed but out of scope.
-- **Blocking questions**: Claude can't continue safely. The issue becomes
-  `claude:blocked` and depends on the question. Work resumes, in the same
-  Claude session with your answer, as soon as you comment on the question
-  (as `HUMAN_REVIEWER`) or close it. Closing without a reply means "go with
-  your recommendation". Comments from anyone else are not passed to Claude.
+- **Decisions to confirm**: work continued with Claude's choice, which is
+  ticked. Claude won't revisit it on its own: if it should change, open an
+  issue for the change.
+- **Follow-ups**: things noticed but out of scope. Tick "Handled" once dealt
+  with.
+- **🛑 Blocking**: Claude can't continue safely. Its recommended option is
+  ticked. The ticket becomes `claude:blocked` and depends on the questions
+  issue. Work resumes, in the same Claude session, as soon as you comment on
+  the questions issue (as `HUMAN_REVIEWER`) or close it. Claude gets your
+  ticks and your reply; closing without a reply means "go with the ticked
+  options". Comments from anyone else are not passed to Claude.
 
-The dispatcher files one more kind itself: **Help needed** (`Help needed on
+Once answered, the questions issue stops blocking the ticket but stays open
+for anything else in it; close it when you're done. A later blocking question
+reopens it, and only replies written after that question count as answers.
+
+The dispatcher adds one more kind itself: **Help needed** (`Help needed on
 #n: CI is still failing on #pr after 2 rounds`), when a PR runs out of fix
-rounds. It lists the failing jobs, blocks the issue, and works like a blocking
-question. Your reply is passed to Claude, which continues on the PR with fresh
-fix rounds; closing it lets Claude try again on its own.
-
-The same question is never filed twice for an issue.
+rounds. It lists the failing jobs, blocks the ticket, and works like a
+blocking question. Your reply is passed to Claude, which continues on the PR
+with fresh fix rounds; closing the issue lets Claude try again on its own.
 
 ## Steering
 
@@ -85,7 +92,7 @@ The same question is never filed twice for an issue.
 | Merge a PR now, whatever CI says      | Comment `/merge` on the PR (as `HUMAN_REVIEWER`)                                                                      |
 | Ask for changes                       | Submit a "request changes" review on the PR's latest commit                                                           |
 | Stop work on an issue                 | Unassign the bot or close the issue (open PRs are left alone)                                                         |
-| Answer a blocking question            | Comment on the question issue, or close it                                                                            |
+| Answer a blocking question            | Tick an option and comment on the questions issue, or close it                                                        |
 | Retry a blocked issue from scratch    | Remove the `claude:blocked` label                                                                                     |
 | Prioritize                            | Add `priority:high` or `priority:low`                                                                                 |
 | Pick the model or effort for an issue | Add `model:<name>` or `effort:<level>` (see [config.md](config.md#how-a-runs-model-effort-and-turn-limit-are-chosen)) |

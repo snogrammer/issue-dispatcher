@@ -6,7 +6,7 @@ import { issueFromBranch } from "../conventions.js";
  * The structured report every Claude run ends with. It is passed to the CLI
  * as `--json-schema`, so Claude must produce it as its final answer, and it is
  * validated again here before the dispatcher acts on it (pushing branches,
- * opening PRs, filing follow-up issues).
+ * opening PRs, filing questions).
  */
 
 export const reportSchema = z.strictObject({
@@ -51,9 +51,16 @@ export const reportSchema = z.strictObject({
         blocking: z
           .boolean()
           .describe("true only if the work cannot continue until a human answers."),
+        options: z
+          .array(z.string().min(1))
+          .describe(
+            "For a question: the answers a human can tick, your recommendation first. Empty for follow-up work.",
+          ),
       }),
     )
-    .describe("Questions or follow-up work for a human, filed as new issues."),
+    .describe(
+      "Questions or follow-up work for a human, collected in one questions issue per issue you work on.",
+    ),
   checks: z
     .array(
       z.strictObject({

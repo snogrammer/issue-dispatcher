@@ -42,7 +42,8 @@ export class FakeGitea implements EngineGitea {
   readonly repos = new Map<string, Repository>();
   readonly issues = new Map<string, Map<number, Issue>>();
   readonly labels = new Map<string, Label[]>();
-  readonly comments: { repo: string; issue: number; author: string; body: string }[] = [];
+  readonly comments: { id: number; repo: string; issue: number; author: string; body: string }[] =
+    [];
   readonly dependencies = new Map<string, number[]>();
   readonly calls: string[] = [];
   readonly pulls = new Map<string, PullRequest[]>();
@@ -280,8 +281,8 @@ export class FakeGitea implements EngineGitea {
     return Promise.resolve(
       this.comments
         .filter((c) => c.repo === key(ref) && c.issue === index)
-        .map((c, i) => ({
-          id: i,
+        .map((c) => ({
+          id: c.id,
           body: c.body,
           user: user(c.author),
           html_url: "",
@@ -293,9 +294,10 @@ export class FakeGitea implements EngineGitea {
 
   createComment(ref: RepoRef, index: number, body: string): Promise<Comment> {
     this.calls.push(`comment ${key(ref)}#${String(index)}`);
-    this.comments.push({ repo: key(ref), issue: index, author: this.botLogin, body });
+    const id = this.comments.length + 1;
+    this.comments.push({ id, repo: key(ref), issue: index, author: this.botLogin, body });
     return Promise.resolve({
-      id: this.comments.length,
+      id,
       body,
       user: user(this.botLogin),
       html_url: "",
@@ -468,6 +470,17 @@ export class FakeGitea implements EngineGitea {
     return Promise.resolve();
   }
 
+  editIssue(
+    ref: RepoRef,
+    index: number,
+    input: { title?: string; body?: string; state?: "open" | "closed" },
+  ): Promise<Issue> {
+    const issue = this.issue(key(ref), index);
+    this.calls.push(`editIssue ${key(ref)}#${String(index)}`);
+    Object.assign(issue, input);
+    return Promise.resolve(structuredClone(issue));
+  }
+
   closeIssue(ref: RepoRef, index: number): Promise<Issue> {
     const issue = this.issue(key(ref), index);
     this.calls.push(`closeIssue ${key(ref)}#${String(index)}`);
@@ -509,6 +522,24 @@ export class FakeGitea implements EngineGitea {
     return Promise.resolve();
   }
 
+  removeDependency(
+    ref: RepoRef,
+    index: number,
+    blocker: { repo: RepoRef; index: number },
+  ): Promise<void> {
+    const dependencyKey = `${key(ref)}#${String(index)}`;
+    const blockers = this.dependencies.get(dependencyKey) ?? [];
+    if (!blockers.includes(blocker.index)) {
+      return Promise.reject(new GiteaError("DELETE", "/dependencies", 404, "no dependency"));
+    }
+    this.calls.push(`removeDependency ${dependencyKey} blockedBy #${String(blocker.index)}`);
+    this.dependencies.set(
+      dependencyKey,
+      blockers.filter((n) => n !== blocker.index),
+    );
+    return Promise.resolve();
+  }
+
   /** Issues the bot filed (e.g. questions), newest last. */
   filedIssues(repo: string): Issue[] {
     return [...this.repoIssues(repo).values()].filter((i) => i.user.login === this.botLogin);
@@ -516,7 +547,7 @@ export class FakeGitea implements EngineGitea {
 
   /** Comment as someone other than the bot (e.g. the reviewer typing /merge). */
   commentAs(repo: string, index: number, author: string, body: string): void {
-    this.comments.push({ repo, issue: index, author, body });
+    this.comments.push({ id: this.comments.length + 1, repo, issue: index, author, body });
   }
 
   // --- Internals --------------------------------------------------------------

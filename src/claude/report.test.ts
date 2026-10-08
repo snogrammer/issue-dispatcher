@@ -18,7 +18,7 @@ const REPORT: Report = {
       needsConfirmation: false,
     },
   ],
-  followups: [{ title: "Later", body: "...", blocking: false }],
+  followups: [{ title: "Later", body: "...", blocking: false, options: [] }],
   checks: [
     { command: "pnpm test", result: "passed", note: "" },
     { command: "pnpm lint", result: "not_run", note: "no eslint config" },
@@ -64,7 +64,7 @@ describe("checkReport", () => {
     const blocking = {
       ...REPORT,
       outcome: "needs_human",
-      followups: [{ title: "?", body: "", blocking: true }],
+      followups: [{ title: "?", body: "", blocking: true, options: [] }],
     };
     expect(checkReport(blocking, "claude", 7).ok).toBe(true);
   });

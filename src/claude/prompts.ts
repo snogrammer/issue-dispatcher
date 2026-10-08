@@ -68,7 +68,8 @@ Toolchains:
 Open questions:
 - If something is ambiguous, pick the option you would recommend, carry on, and record it under "decisions". Set needsConfirmation when a human should confirm it afterwards.
 - Put follow-up work you noticed but did not do under "followups" with blocking: false.
-- Only if you cannot proceed safely without an answer: add a followup with blocking: true and finish with outcome "needs_human".
+- Only if you cannot proceed safely without an answer: add a followup with blocking: true, list the possible answers under options (your recommendation first), and finish with outcome "needs_human".
+- All of these go into one questions issue for the human, so keep each title short and specific.
 
 Your final answer is the structured report. List every branch with commits, bottom of the stack first, each with a PR title and description.`;
 }

@@ -126,10 +126,25 @@ Then remove the `claude:blocked` label to start the issue over.
 ## An issue is blocked with a "Help needed" ticket
 
 A PR used up its `MAX_FIX_ATTEMPTS` fix rounds (CI, review or rebase) on the
-same problem. Rather than guess again, the dispatcher filed a
-`claude:question` issue assigned to `HUMAN_REVIEWER`, with the failing jobs.
-Reply there (work continues with your answer and fresh rounds) or close it
-(Claude tries again on its own).
+same problem. Rather than guess again, the dispatcher added a blocking item
+with the failing jobs to the issue's `Questions for #n` issue, assigned to
+`HUMAN_REVIEWER`. Reply there (work continues with your answer and fresh
+rounds) or close it (Claude tries again on its own).
+
+## Old per-question issues
+
+Before the questions issue, the dispatcher filed one `claude:question` issue
+per question (`Question from #n: …`, `Confirm decision on #n: …`). To fold the
+open ones into one questions issue per ticket, run this where the dispatcher
+runs (it uses the same config):
+
+```sh
+node dist/squash-questions.js owner/repo          # dry run: prints the issues it would file
+node dist/squash-questions.js owner/repo --apply  # files them, closes the old ones
+```
+
+An open blocking question carries over: the new issue blocks the ticket in
+its place, and replying there resumes work as usual.
 
 ## "another dispatcher is using this data directory"
 

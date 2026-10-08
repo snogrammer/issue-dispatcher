@@ -73,6 +73,13 @@ const CASES: Case[] = [
     { owner: "o2", repo: "r2", index: 3 },
   ],
   [
+    "remove dependency",
+    (g) => g.removeDependency(repo, 5, { repo: { owner: "o2", name: "r2" }, index: 3 }),
+    "DELETE",
+    "/repos/org/repo/issues/5/dependencies",
+    { owner: "o2", repo: "r2", index: 3 },
+  ],
+  [
     "list dependencies",
     (g) => g.listDependencies(repo, 5),
     "GET",
