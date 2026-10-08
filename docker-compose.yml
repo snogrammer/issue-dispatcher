@@ -16,6 +16,7 @@ services:
       args:
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-stable}
         EXTRA_APT_PACKAGES: ${EXTRA_APT_PACKAGES:-}
+        ASDF_PRELOAD: ${ASDF_PRELOAD:-python latest:3.12 ruby latest:3.3}
     image: claude-dispatcher:local
     restart: unless-stopped
     # DISPATCHER_ENV_FILE lets scripts/dev-gitea.sh point at its own file
@@ -31,6 +32,9 @@ services:
     volumes:
       - dispatcher-data:/data
       - dispatcher-workspaces:/workspaces
+      # Language versions installed with asdf. A named volume, so Docker seeds
+      # it from the image's preloaded versions on first use.
+      - dispatcher-toolchains:/toolchains
     mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
     networks: [dispatcher]
     # /healthz, /status and the web dashboard listen on 127.0.0.1 inside the
@@ -62,3 +66,4 @@ networks:
 volumes:
   dispatcher-data: {}
   dispatcher-workspaces: {}
+  dispatcher-toolchains: {}

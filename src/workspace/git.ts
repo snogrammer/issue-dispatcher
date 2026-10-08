@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 
 import { issueFromBranch } from "../conventions.js";
 import type { RepoRef } from "../gitea/types.js";
+import { ensureToolchain, type ToolchainResult } from "./toolchain.js";
 
 /**
  * One git checkout per watched repo, reused across runs. The dispatcher does
@@ -28,6 +29,8 @@ export interface WorkspaceOptions {
   labelPrefix: string;
   /** Override the clone URL (tests use local bare repos). */
   cloneUrl?: (repo: RepoRef) => string;
+  /** Install pinned language versions before runs; omitted means don't. */
+  toolchain?: { timeoutMs: number };
 }
 
 export class GitError extends Error {
@@ -71,6 +74,13 @@ export class Workspace {
     const start = (await this.remoteBranchExists(branch)) ? `origin/${branch}` : `origin/${base}`;
     await this.git(["checkout", "--quiet", "-B", branch, start]);
     return this.head(branch);
+  }
+
+  /** Install the language versions the checkout pins (see toolchain.ts). */
+  async ensureToolchain(): Promise<ToolchainResult> {
+    const { toolchain } = this.options;
+    if (toolchain === undefined) return { env: {}, problems: [] };
+    return ensureToolchain(this.dir, toolchain);
   }
 
   /**

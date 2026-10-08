@@ -1,6 +1,7 @@
 # Deploying with Docker
 
-The image bundles Node 22, git, the Claude Code CLI and the dispatcher. It
+The image bundles Node 22, git, the Claude Code CLI, the dispatcher, and
+[project toolchains](#project-toolchains) (asdf with Python and Ruby, uv). It
 runs as a non-root user (uid 10001) with `tini` as PID 1 (so processes left
 behind by a timed-out Claude run are reaped) and has a healthcheck on `/healthz`.
 
@@ -26,9 +27,11 @@ docker compose logs -f dispatcher
 
 This uses the same `.env` as `pnpm dev`. The compose file pins `DATA_DIR` and
 `WORKSPACE_DIR` to the container's volumes, so the host paths in `.env` don't
-apply inside the container. State lives in two named volumes:
-`dispatcher-data` (SQLite) and `dispatcher-workspaces` (repo checkouts). Both
-can be deleted: state is rebuilt from Gitea labels and checkouts are re-cloned.
+apply inside the container. State lives in named volumes: `dispatcher-data`
+(SQLite), `dispatcher-workspaces` (repo checkouts) and `dispatcher-toolchains`
+(language versions). All can be deleted: state is rebuilt from Gitea labels,
+checkouts are re-cloned, and toolchains are re-seeded from the image and
+reinstalled on demand.
 
 Throwaway Postgres and Redis (alpine images, data in tmpfs) for test suites are
 available on the same network (`postgres:5432`, `redis:6379`):
@@ -64,8 +67,12 @@ compose file needs:
 | `DISPATCHER_BIND_ADDR`       | host address for the dashboard port (default `127.0.0.1`)        |
 | `DISPATCHER_HOST_PORT`       | host port for the dashboard (default `8080`)                     |
 
+Language versions live in a named volume (`toolchains`), not a bind mount:
+Docker seeds a new named volume from the image's preloaded versions, and
+compiled Python and Ruby only work at the path they were built for.
+
 The dispatcher runs as uid 10001. The container starts as root only long
-enough to take ownership of `/data` and `/workspaces` (so host directories
+enough to take ownership of `/data`, `/workspaces` and `/toolchains` (so host directories
 Docker creates owned by root just work), then drops to uid 10001.
 
 If the registry is private, add it under Portainer's registries so the host can
@@ -131,12 +138,37 @@ from issue labels and resumes them.
 
 ## Project toolchains
 
-Claude runs each repo's tests inside this container, so it needs the repo's
-toolchain. Node and pnpm/npm/yarn (via corepack) are included. For more:
+Claude must run each repo's checks (tests, linters, type checks) before the
+dispatcher pushes anything, so the container needs each repo's toolchain. A
+run whose checks failed or couldn't run is blocked, not pushed (see
+[workflow.md](workflow.md)).
 
-- small additions: `EXTRA_APT_PACKAGES="python3 python3-venv make" docker compose build`
-- anything bigger: build your own image `FROM` this one and set `image:` in
-  compose (or `DISPATCHER_IMAGE` for Portainer).
+- **Node**: the image's Node 22, with pnpm/npm/yarn through corepack.
+- **Python and Ruby**: installed with [asdf](https://asdf-vm.com) at build
+  time. `ASDF_PRELOAD` picks the versions (default
+  `python latest:3.12 ruby latest:3.3`; `latest:<prefix>` means the newest
+  matching release). These are the defaults for repos that pin nothing. `uv`
+  is included too.
+- **Per-repo versions**: before each run the dispatcher reads the checkout's
+  `.tool-versions`, `.python-version`, `.ruby-version`, `.node-version` and
+  `.nvmrc`, installs those versions with asdf (any asdf plugin works in
+  `.tool-versions`), and passes the exact versions to Claude's run as
+  `ASDF_<TOOL>_VERSION`. A short pin like `3.12` resolves to its newest
+  release. The first install of a version compiles it (a few minutes for
+  Python or Ruby, limited by `TOOLCHAIN_INSTALL_TIMEOUT_MIN`). After that it's
+  cached in the toolchains volume, across restarts and image upgrades. If an
+  install fails, Claude is told which one, and the checks it can't run block
+  the issue. `TOOLCHAIN_AUTO_INSTALL=false` turns this off.
+- **System libraries**: the image has the usual build dependencies (OpenSSL,
+  libffi, SQLite, libyaml, libxml2, Postgres and MySQL client headers) for
+  native gems and wheels. Add more with
+  `EXTRA_APT_PACKAGES="libvips-dev imagemagick" docker compose build`, or
+  build your own image `FROM` this one and set `image:` in compose (or
+  `DISPATCHER_IMAGE` for Portainer).
+
+Preloading costs image size (about 1 GB) and build time (a few minutes per
+version), once per build. For published images, set the `ASDF_PRELOAD` repo
+variable (see `.gitea/workflows/publish.yml`).
 
 ## Security
 

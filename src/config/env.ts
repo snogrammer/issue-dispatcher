@@ -37,6 +37,12 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "CLAUDE_TIMEOUT_MIN", path: ["claude", "timeoutMin"], kind: "int" },
   { name: "CLAUDE_PERMISSION_MODE", path: ["claude", "permissionMode"], kind: "string" },
   { name: "CLAUDE_MAX_BUDGET_USD", path: ["claude", "maxBudgetUsd"], kind: "number" },
+  { name: "TOOLCHAIN_AUTO_INSTALL", path: ["toolchain", "autoInstall"], kind: "bool" },
+  {
+    name: "TOOLCHAIN_INSTALL_TIMEOUT_MIN",
+    path: ["toolchain", "installTimeoutMin"],
+    kind: "int",
+  },
   { name: "GIT_USER_NAME", path: ["git", "userName"], kind: "string" },
   { name: "GIT_USER_EMAIL", path: ["git", "userEmail"], kind: "string" },
   { name: "CLAUDE_MODEL", path: ["routing", "default", "model"], kind: "string" },

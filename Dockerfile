@@ -26,22 +26,63 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 # Claude Code version: a dist-tag (stable, latest) or an exact version.
 ARG CLAUDE_CODE_VERSION=stable
-# Extension point for project toolchains, e.g. "python3 python3-venv make".
-# For anything bigger, build FROM this image and install what you need.
+# Extra system packages a project's checks need (e.g. "libvips-dev imagemagick").
 ARG EXTRA_APT_PACKAGES=""
+# Language versions installed with asdf at build time, as "tool version" pairs.
+# `latest:<prefix>` picks the newest matching release. Each repo's own pins
+# (.tool-versions, .python-version, .ruby-version, .node-version, .nvmrc) are
+# installed on demand before a run and kept in the toolchains volume. Node
+# defaults to the image's own (system) Node.
+ARG ASDF_PRELOAD="python latest:3.12 ruby latest:3.3"
+ARG ASDF_VERSION=0.20.2
+ARG ASDF_SHA256_AMD64=6d45e6fab12f50a259b5643adf06a2e77af30a87300b4402440eda09af467a6d
+ARG ASDF_SHA256_ARM64=356e135a608bdfba34038c1f18c4b82434d7b6d546e30dbf372c61baaa2f442c
+ARG TARGETARCH
 
 # tini: PID 1 that reaps the orphans left when a timed-out Claude run's
-# process group is killed (otherwise they stay zombies).
+# process group is killed (otherwise they stay zombies). The rest lets asdf
+# build Python and Ruby, and covers the native gems and wheels most Rails and
+# Python projects need (Postgres, MySQL, SQLite, YAML, XML).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates tini ${EXTRA_APT_PACKAGES} \
+  && apt-get install -y --no-install-recommends git ca-certificates tini curl unzip xz-utils \
+     build-essential pkg-config libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
+     libsqlite3-dev libffi-dev liblzma-dev libyaml-dev libgdbm-dev libncurses-dev \
+     tk-dev uuid-dev libxml2-dev libxslt1-dev libpq-dev default-libmysqlclient-dev \
+     ${EXTRA_APT_PACKAGES} \
   && rm -rf /var/lib/apt/lists/*
+
+# asdf manages per-project language versions; uv is the usual Python runner.
+RUN case "${TARGETARCH:-amd64}" in \
+      amd64) sum="${ASDF_SHA256_AMD64}" ;; \
+      arm64) sum="${ASDF_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+  && curl -fsSL -o /tmp/asdf.tgz \
+     "https://github.com/asdf-vm/asdf/releases/download/v${ASDF_VERSION}/asdf-v${ASDF_VERSION}-linux-${TARGETARCH:-amd64}.tar.gz" \
+  && echo "${sum}  /tmp/asdf.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/asdf.tgz -C /usr/local/bin asdf \
+  && rm /tmp/asdf.tgz
+COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   && npm cache clean --force \
   && corepack enable
 
 RUN useradd --create-home --uid 10001 --shell /bin/bash dispatcher \
-  && mkdir -p /data /workspaces \
-  && chown dispatcher:dispatcher /data /workspaces
+  && mkdir -p /data /workspaces /toolchains \
+  && chown dispatcher:dispatcher /data /workspaces /toolchains
+
+# Toolchains live in /toolchains (a named volume in compose: Docker seeds it
+# from this image on first use, and versions installed later survive
+# upgrades). Builds are prefix-bound, so they're built in place.
+ENV ASDF_DATA_DIR=/toolchains \
+    ASDF_CONFIG_FILE=/etc/asdfrc \
+    ASDF_NODEJS_AUTO_ENABLE_COREPACK=1 \
+    PATH=/toolchains/shims:$PATH
+COPY docker/asdfrc /etc/asdfrc
+COPY --chmod=755 docker/asdf-preload.sh /usr/local/bin/asdf-preload
+USER dispatcher
+RUN HOME=/home/dispatcher asdf-preload ${ASDF_PRELOAD}
+USER root
 
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
@@ -63,7 +104,7 @@ ENV NODE_ENV=production \
 
 # No USER: dispatcher-entrypoint fixes volume ownership as root, then runs
 # the dispatcher as uid 10001.
-VOLUME ["/data", "/workspaces"]
+VOLUME ["/data", "/workspaces", "/toolchains"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:' + (process.env.STATUS_PORT || 8080) + '/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
@@ -76,4 +117,5 @@ LABEL org.opencontainers.image.title=IssueDispatcher \
       org.opencontainers.image.revision=$GIT_SHA
 
 ENTRYPOINT ["tini", "--", "dispatcher-entrypoint"]
-CMD ["node", "dist/main.js"]
+# The image's own Node, whatever version a project pins through asdf.
+CMD ["/usr/local/bin/node", "dist/main.js"]

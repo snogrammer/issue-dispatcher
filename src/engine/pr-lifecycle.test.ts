@@ -219,7 +219,7 @@ describe("fixing CI", () => {
     expect(fix).toMatchObject({ phase: "fix-ci", issue: 1, resumeSessionId: "session-1" });
     expect(fix?.prompt).toContain("FAIL src/a.test.ts\nexpected 2, got 3");
     expect(store.getWork(A, 1)).toMatchObject({ fixAttempts: 1, lastSha: "sha-2" });
-    expect(gitea.commentsOn(A, 2).at(-1)).toContain("Pushed sha-2 (fix-ci, round 1 of 3).");
+    expect(gitea.commentsOn(A, 2).at(-1)).toContain("Pushed sha-2 (fix-ci, round 1 of 2).");
 
     gitea.setStatus("sha-2", "success");
     await cycle(engine);
@@ -236,19 +236,83 @@ describe("fixing CI", () => {
     );
   });
 
-  it("blocks after MAX_FIX_ATTEMPTS rounds", async () => {
-    const fixture = withPrs({ MAX_FIX_ATTEMPTS: "2" });
+  it("files a ticket for the human after MAX_FIX_ATTEMPTS rounds (default 2)", async () => {
+    const fixture = withPrs();
     const { gitea, engine, store } = fixture;
     await toReview(fixture);
-    for (const sha of ["sha-1", "sha-2", "sha-3"]) {
+    for (const sha of ["sha-1", "sha-2"]) {
       gitea.setStatus(sha, "failure");
       await cycle(engine);
     }
-    expect(store.getWork(A, 1)?.state).toBe("blocked");
-    expect(gitea.commentsOn(A, 1).at(-1)).toContain(
-      `@${REVIEWER} CI is still failing on #2 after 2 rounds.`,
-    );
+    gitea.setStatus("sha-3", "failure");
+    gitea.addFailedRun(A, "sha-3", "lint", "ruff: E501 line too long");
+    await cycle(engine);
+
     expect(fixture.runner.requests.filter((r) => r.phase === "fix-ci")).toHaveLength(2);
+    expect(store.getWork(A, 1)?.state).toBe("blocked");
+    const [ticket] = gitea.filedIssues(A);
+    expect(ticket).toMatchObject({
+      number: 3,
+      title: "Help needed on #1: CI is still failing on #2 after 2 rounds",
+      assignees: [{ login: REVIEWER }],
+    });
+    expect(ticket?.labels.map((l) => l.name)).toEqual(["claude:question"]);
+    expect(ticket?.body).toContain("(head sha-3)");
+    expect(ticket?.body).toMatch(/Failing jobs:\n\n- \[lint\]\(.+\)/);
+    expect(gitea.dependencies.get(`${A}#1`)).toEqual([3]);
+    expect(gitea.commentsOn(A, 1).at(-1)).toContain(
+      `@${REVIEWER} Help needed on #1: CI is still failing on #2 after 2 rounds. See #3`,
+    );
+
+    // Still blocked on the next poll: no third round, no second ticket.
+    await cycle(engine);
+    expect(fixture.runner.requests.filter((r) => r.phase === "fix-ci")).toHaveLength(2);
+    expect(gitea.filedIssues(A)).toHaveLength(1);
+  });
+
+  it("continues with the human's answer and fresh fix rounds", async () => {
+    const fixture = withPrs({ MAX_FIX_ATTEMPTS: "1" });
+    const { gitea, engine, store, runner } = fixture;
+    await toReview(fixture);
+    gitea.setStatus("sha-1", "failure");
+    await cycle(engine);
+    gitea.setStatus("sha-2", "failure");
+    await cycle(engine);
+    expect(store.getWork(A, 1)).toMatchObject({ state: "blocked", fixAttempts: 1 });
+
+    gitea.commentAs(A, 3, REVIEWER, "The test fixture is stale; regenerate it.");
+    await cycle(engine);
+
+    const resumed = runner.requests.at(-1);
+    expect(resumed?.phase).toBe("address-review");
+    expect(resumed?.prompt).toContain("regenerate it");
+    expect(store.getWork(A, 1)).toMatchObject({ state: "in-review", fixAttempts: 0 });
+    expect(gitea.issue(A, 3).state).toBe("closed");
+
+    // The next red CI gets a fix round again instead of another ticket.
+    gitea.setStatus("sha-3", "failure");
+    await cycle(engine);
+    expect(runner.requests.at(-1)?.phase).toBe("fix-ci");
+    expect(gitea.filedIssues(A)).toHaveLength(1);
+  });
+
+  it("waits for every CI run on the head to finish before a fix round", async () => {
+    const fixture = withPrs();
+    const { gitea, engine, runner } = fixture;
+    await toReview(fixture);
+    gitea.setStatus("sha-1", "failure");
+    gitea.addFailedRun(A, "sha-1", "lint", "E501");
+    gitea.addRun(A, "sha-1", "in_progress");
+
+    await cycle(engine);
+    expect(runner.requests.map((r) => r.phase)).toEqual(["implement"]);
+
+    for (const run of gitea.runs) {
+      if (run.status === "in_progress")
+        Object.assign(run, { status: "completed", conclusion: "success" });
+    }
+    await cycle(engine);
+    expect(runner.requests.map((r) => r.phase)).toEqual(["implement", "fix-ci"]);
   });
 
   it("blocks when a fix round pushes no new commit", async () => {
@@ -506,7 +570,7 @@ describe("follow-up rounds", () => {
 });
 
 describe("merge problems", () => {
-  it("sends a conflicted PR to a Claude rebase round, then blocks after the cap", async () => {
+  it("sends a conflicted PR to a Claude rebase round, then asks the human after the cap", async () => {
     const fixture = withPrs({ MAX_FIX_ATTEMPTS: "1" });
     const { gitea, engine, runner, store } = fixture;
     await toReview(fixture);
@@ -525,7 +589,7 @@ describe("merge problems", () => {
     await cycle(engine);
     expect(store.getWork(A, 1)?.state).toBe("blocked");
     expect(gitea.commentsOn(A, 1).at(-1)).toContain(
-      "It still conflicts with `main` on #2 after 1 rounds.",
+      "Help needed on #1: #2 still conflicts with `main` after 1 rounds.",
     );
   });
 

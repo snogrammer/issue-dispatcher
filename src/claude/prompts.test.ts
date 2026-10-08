@@ -23,6 +23,27 @@ describe("systemRules", () => {
     expect(rules).toContain("claude/7-add-runner-part-2");
     expect(rules).toContain('outcome "needs_human"');
   });
+
+  it("asks for the CI checks to be run locally and reported, never left to CI", () => {
+    const rules = systemRules(CONTEXT);
+    expect(rules).toContain("only pushed if every check you report passed");
+    expect(rules).toContain(".gitea/workflows or .github/workflows");
+    expect(rules).toContain("`asdf install <tool> <version>`");
+    expect(rules).toContain('report it as "not_run"');
+    expect(rules).not.toContain("installing the repo's pinned versions failed");
+  });
+
+  it("names the pinned versions that couldn't be installed", () => {
+    const rules = systemRules({
+      ...CONTEXT,
+      toolchainProblems: [
+        "Installing python 3.13.1 (from .tool-versions) failed: BUILD FAILED\nno ssl",
+      ],
+    });
+    expect(rules).toContain(
+      "installing the repo's pinned versions failed:\n  - Installing python 3.13.1 (from .tool-versions) failed: BUILD FAILED no ssl",
+    );
+  });
 });
 
 describe("buildPrompt", () => {
@@ -45,6 +66,8 @@ describe("buildPrompt", () => {
       failures: [{ name: "check", url: "https://ci/1", logTail: "error: expected 2, got 3" }],
     });
     expect(prompt).toContain("CI failed on claude/7-add-runner");
+    expect(prompt).toContain("Reproduce the failure locally");
+    expect(prompt).toContain("don't guess at a fix");
     expect(prompt).toContain("https://ci/1\nerror: expected 2, got 3");
     expect(buildPrompt("fix-ci", CONTEXT)).toContain("No log output was available");
   });

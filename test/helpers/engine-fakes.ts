@@ -9,6 +9,7 @@ import { loadConfig } from "../../src/config/load.js";
 import { Engine } from "../../src/engine/engine.js";
 import type { Lifecycle, WorkspaceLike } from "../../src/engine/lifecycle.js";
 import { StateStore } from "../../src/state/store.js";
+import type { ToolchainResult } from "../../src/workspace/toolchain.js";
 import { FakeGitea } from "./fake-gitea.js";
 
 export const BOT = "bot";
@@ -86,6 +87,7 @@ export function report(issue: number, overrides: Partial<Report> = {}): Report {
     branches: [{ name: `claude/${String(issue)}-x`, title: "T", body: "B" }],
     decisions: [],
     followups: [],
+    checks: [{ command: "pnpm test", result: "passed", note: "" }],
     ...overrides,
   };
 }
@@ -103,6 +105,8 @@ export class FakeWorkspace implements WorkspaceLike {
   readonly heads = new Map<string, string>();
   failPrepare = false;
   failPush = false;
+  /** What ensureToolchain returns. */
+  toolchain: ToolchainResult = { env: {}, problems: [] };
   stuck = false;
   /** Make the next mechanical rebase hit conflicts. */
   rebaseConflicts = false;
@@ -120,6 +124,10 @@ export class FakeWorkspace implements WorkspaceLike {
     if (this.failPrepare) return Promise.reject(new Error("git fetch failed"));
     this.prepared.push([branch, base]);
     return Promise.resolve(this.heads.get(branch) ?? "base-sha");
+  }
+
+  ensureToolchain(): Promise<ToolchainResult> {
+    return Promise.resolve(this.toolchain);
   }
 
   push(issue: number, branches: string[]): Promise<Map<string, string>> {
@@ -192,8 +200,9 @@ export function setup(
     return ws;
   };
   let sessions = 0;
-  const make = () =>
+  const make = (extra: { leaseRetryMs?: number } = {}) =>
     new Engine({
+      ...extra,
       config,
       gitea,
       store,

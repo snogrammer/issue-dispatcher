@@ -54,6 +54,19 @@ export const reportSchema = z.strictObject({
       }),
     )
     .describe("Questions or follow-up work for a human, filed as new issues."),
+  checks: z
+    .array(
+      z.strictObject({
+        command: z.string().min(1).describe("The command as you ran it, e.g. `uv run pytest`."),
+        result: z
+          .enum(["passed", "failed", "not_run"])
+          .describe("The result of its last run, after your final commit."),
+        note: z.string().describe("Why it failed or could not run; empty if it passed."),
+      }),
+    )
+    .describe(
+      "Every check the repo's CI runs (tests, linters, type checks, builds), run locally on your final commit. Empty only if the repo has no checks at all. The dispatcher does not push unless every check passed.",
+    ),
 });
 
 export type Report = z.infer<typeof reportSchema>;

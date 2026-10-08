@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 
 import { buildPrompt, systemRules, type PromptContext } from "../claude/prompts.js";
 import type { ClaudeRunResult, RunRequest } from "../claude/runner.js";
@@ -84,6 +85,8 @@ export interface EngineDeps {
   log?: Logger;
   now?: () => Date;
   newSessionId?: () => string;
+  /** How often start() retries while another dispatcher holds the database. */
+  leaseRetryMs?: number;
 }
 
 /** What the engine is doing right now, for /status and /healthz. */
@@ -109,6 +112,8 @@ interface InFlight {
 }
 
 const REPO_REFRESH_MS = 5 * 60_000;
+/** A lease not renewed for this many polls belongs to a dead or hung process. */
+const LEASE_STALE_POLLS = 5;
 
 /** Hidden in the comment left on issues assigned to the bot in an empty repo. */
 const EMPTY_REPO_MARKER = "<!-- claude-dispatcher:empty-repo -->";
@@ -143,6 +148,12 @@ export class Engine {
   private ticking = false;
   /** pollNow() was called during a poll: start the next one right after. */
   private pollRequested = false;
+  /** Identifies this process in the database lease. */
+  private readonly leaseHolder = `${hostname()}:${String(process.pid)}:${randomUUID().slice(0, 8)}`;
+  /** Set once start() holds the lease; from then on every poll renews it. */
+  private leased = false;
+  /** Logged once per loss, not every poll. */
+  private leaseLost = false;
 
   constructor(private readonly deps: EngineDeps) {
     this.config = deps.config;
@@ -185,6 +196,7 @@ export class Engine {
 
   async start(): Promise<void> {
     this.startedAt = this.now();
+    if (!(await this.takeLease())) return;
     const tokenOwner = (await this.gitea.getCurrentUser()).login;
     if (tokenOwner !== this.config.gitea.botUsername) {
       this.log.warn(
@@ -225,10 +237,12 @@ export class Engine {
     await this.currentTick;
     for (const run of this.inFlight.values()) run.controller.abort();
     await Promise.all([...this.inFlight.values()].map((run) => run.done));
+    if (this.leased) this.store.releaseLease(this.leaseHolder);
   }
 
   /** One pass over every watched repo. Public for tests and manual runs. */
   async tick(): Promise<void> {
+    if (!this.renewLease()) return;
     try {
       await this.refreshRepos();
     } catch (error) {
@@ -251,6 +265,55 @@ export class Engine {
     while (this.inFlight.size > 0) {
       await Promise.all([...this.inFlight.values()].map((run) => run.done));
     }
+  }
+
+  // --- Database lease -------------------------------------------------------
+
+  /**
+   * Two dispatchers on one database would run the same issues twice (#52).
+   * Wait until no other live process holds the lease. Returns false if
+   * stopped while waiting.
+   */
+  private async takeLease(): Promise<boolean> {
+    let waiting = false;
+    while (!this.stopping) {
+      const lease = this.store.acquireLease(this.leaseHolder, this.leaseStaleMs());
+      if (lease.ok) {
+        if (waiting) this.log.info("database lease taken; starting");
+        this.leased = true;
+        return true;
+      }
+      if (!waiting) {
+        this.log.warn("another dispatcher is using this data directory; waiting for it to stop", {
+          holder: lease.holder,
+        });
+        waiting = true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, this.deps.leaseRetryMs ?? 10_000));
+    }
+    return false;
+  }
+
+  /** Heartbeat the lease; false (skip this poll) if another process took it over. */
+  private renewLease(): boolean {
+    if (!this.leased) return true;
+    const lease = this.store.acquireLease(this.leaseHolder, this.leaseStaleMs());
+    if (!lease.ok) {
+      if (!this.leaseLost) {
+        this.log.error("another dispatcher took over this data directory; not polling", {
+          holder: lease.holder,
+        });
+      }
+      this.leaseLost = true;
+      return false;
+    }
+    if (this.leaseLost) this.log.info("database lease taken back; polling again");
+    this.leaseLost = false;
+    return true;
+  }
+
+  private leaseStaleMs(): number {
+    return LEASE_STALE_POLLS * this.config.pollIntervalS * 1000;
   }
 
   // --- Polling --------------------------------------------------------------
@@ -584,6 +647,8 @@ export class Engine {
     });
     try {
       await workspace.prepare(branch, repo.defaultBranch);
+      const toolchain = await workspace.ensureToolchain();
+      for (const problem of toolchain.problems) log.warn("toolchain install failed", { problem });
       const prompt: PromptContext = {
         issue: {
           repo: name,
@@ -594,6 +659,7 @@ export class Engine {
         },
         branch,
         baseBranch: repo.defaultBranch,
+        toolchainProblems: toolchain.problems,
       };
       log.info("run started", { model: route.model, effort: route.effort, resume });
       result = await this.deps.runClaude({
@@ -604,6 +670,7 @@ export class Engine {
         systemPrompt: systemRules(prompt),
         route,
         ...(resume ? { resumeSessionId: sessionId } : { sessionId }),
+        env: toolchain.env,
         signal: run.controller.signal,
       });
     } catch (error) {
@@ -777,7 +844,16 @@ export class Engine {
     const details: RunDetails = {
       answers: answers.map(({ question, answer }) => ({ question, answer })),
     };
-    if (!this.startRun(context, phase, details)) return true;
+    // A human answered: the PR gets a fresh set of fix rounds, or the next
+    // red CI would escalate again straight away.
+    const fresh =
+      phase === "address-review" && context.work.fixAttempts > 0
+        ? { ...context, work: { ...context.work, fixAttempts: 0 } }
+        : context;
+    if (!this.startRun(fresh, phase, details)) return true;
+    if (fresh !== context) {
+      this.store.updateWork(context.repo.fullName, context.issue.number, { fixAttempts: 0 });
+    }
 
     const next = await this.setState(context, phase === "implement" ? "working" : "in-review");
     await this.questions.closeAnswered(next, answers);
@@ -814,6 +890,14 @@ export class Engine {
           next.issue.number,
           `@${humanReviewer} ${reason}\n\nTo retry from scratch, remove the \`${stateLabel(labelPrefix, "blocked")}\` label. To drop the issue, unassign ${gitea.botUsername}.`,
         );
+      },
+      escalate: async (context, escalation) => {
+        const question = await this.questions.escalate(context, escalation);
+        const where =
+          question === undefined
+            ? ""
+            : ` See #${String(question.number)}: reply there or close it and work continues.`;
+        await this.actions().block(context, `${escalation.title}.${where}`);
       },
       finish: async (context, outcome) => {
         this.store.release(context.repo.fullName, outcome);

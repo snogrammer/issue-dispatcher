@@ -75,7 +75,7 @@ export const configSchema = z
       .default("claude"),
     pollIntervalS: z.int().min(10).default(60),
     maxConcurrentSessions: z.int().min(1).default(1),
-    maxFixAttempts: z.int().min(0).default(3),
+    maxFixAttempts: z.int().min(0).default(2),
     requireCi: z.boolean().default(true),
     /** Overrides each repo's default merge style when set. */
     mergeStyle: z
@@ -102,6 +102,17 @@ export const configSchema = z
         timeoutMin: z.int().min(1).default(60),
         permissionMode: z.enum(PERMISSION_MODES).default("bypassPermissions"),
         maxBudgetUsd: z.number().positive().optional(),
+      })
+      .prefault({}),
+    /**
+     * Install the language versions a repo pins (asdf) before each run, so
+     * Claude can run the repo's checks locally.
+     */
+    toolchain: z
+      .strictObject({
+        autoInstall: z.boolean().default(true),
+        /** Per install; Python and Ruby compile from source. */
+        installTimeoutMin: z.int().min(1).default(20),
       })
       .prefault({}),
     /** Commit identity in workspaces; defaults derive from the bot account. */

@@ -28,6 +28,7 @@ const report = {
   branches: [{ name: "claude/7-runner", title: "Runner", body: "Adds the runner." }],
   decisions: [],
   followups: [],
+  checks: [{ command: "npm test", result: "passed", note: "" }],
 };
 
 function result(extra) {
@@ -56,7 +57,11 @@ function run() {
         args,
         stdin,
         cwd: process.cwd(),
-        env: { GITEA_TOKEN: process.env.GITEA_TOKEN ?? null, KEEP_ME: process.env.KEEP_ME ?? null },
+        env: {
+          GITEA_TOKEN: process.env.GITEA_TOKEN ?? null,
+          KEEP_ME: process.env.KEEP_ME ?? null,
+          ASDF_PYTHON_VERSION: process.env.ASDF_PYTHON_VERSION ?? null,
+        },
       }),
     );
   }

@@ -208,6 +208,34 @@ describe("governor", () => {
   });
 });
 
+describe("instance lease", () => {
+  it("lets one holder at a time own the database until its heartbeat goes stale", () => {
+    const time = clock();
+    const store = StateStore.inMemory({ now: time.now });
+
+    expect(store.acquireLease("first", 60_000)).toEqual({ ok: true });
+    expect(store.acquireLease("second", 60_000)).toEqual({ ok: false, holder: "first" });
+
+    time.advance(30_000);
+    expect(store.acquireLease("first", 60_000)).toEqual({ ok: true });
+    time.advance(59_000);
+    expect(store.acquireLease("second", 60_000)).toEqual({ ok: false, holder: "first" });
+
+    time.advance(2_000);
+    expect(store.acquireLease("second", 60_000)).toEqual({ ok: true });
+    expect(store.acquireLease("first", 60_000)).toEqual({ ok: false, holder: "second" });
+  });
+
+  it("frees the lease on release, but only for its holder", () => {
+    const store = StateStore.inMemory();
+    store.acquireLease("first", 60_000);
+    store.releaseLease("second");
+    expect(store.acquireLease("second", 60_000).ok).toBe(false);
+    store.releaseLease("first");
+    expect(store.acquireLease("second", 60_000).ok).toBe(true);
+  });
+});
+
 describe("settings", () => {
   it("round-trips the dashboard config overrides", () => {
     const store = StateStore.inMemory();

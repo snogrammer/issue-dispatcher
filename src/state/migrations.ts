@@ -69,4 +69,13 @@ export const MIGRATIONS: readonly string[] = [
   -- Run history and cost charts filter by start time.
   CREATE INDEX runs_by_start ON runs (started_at);
   `,
+  `
+  -- Which dispatcher process owns this database, so two never work the same
+  -- issues (#52). One row; the holder heartbeats it every poll.
+  CREATE TABLE instance_lease (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    holder       TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL
+  );
+  `,
 ];

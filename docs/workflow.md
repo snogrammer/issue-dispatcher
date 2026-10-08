@@ -3,13 +3,21 @@
 1. **Assign an issue to the bot.** Each watched repo works on one issue at a
    time: `priority:high` first, then unlabeled, then `priority:low`, oldest
    first. Issues blocked by an open Gitea dependency wait.
-2. **Claude implements it** on `claude/<n>-<slug>` and commits. The dispatcher
-   pushes and opens a PR (or a stack of PRs for larger work; only the top one
-   says `Closes #n`). PR descriptions list the decisions Claude made on its own.
+2. **Claude implements it** on `claude/<n>-<slug>` and commits, after running
+   the repo's checks (whatever its CI runs) locally. The repo's pinned
+   language versions are installed first (see
+   [deploy.md](deploy.md#project-toolchains)). The dispatcher pushes only if
+   every check Claude reports passed; otherwise the issue is blocked with the
+   list of checks. Then it opens a PR (or a stack of PRs for larger work; only
+   the top one says `Closes #n`). PR descriptions list the decisions Claude
+   made on its own.
 3. **CI decides.** When the bottom PR's CI is green it is merged with the
    repo's default merge style (or `MERGE_STYLE`). Red CI starts a fix round
-   with the failing job logs; requested changes start a review round. Rounds
-   are capped by `MAX_FIX_ATTEMPTS` per PR, and a round that commits nothing
+   with the failing job logs, once every CI run on that commit has finished;
+   requested changes start a review round. Fix rounds follow the same rule:
+   checks must pass locally before the fix is pushed. Rounds are capped by
+   `MAX_FIX_ATTEMPTS` (default 2) per PR; after that the dispatcher files a
+   "Help needed" ticket for you (see Questions). A round that commits nothing
    stops instead of looping.
 4. **Stacks move up.** When the bottom PR of a stack merges, the next PR is
    retargeted to the default branch, the merged branch is deleted, and the
@@ -61,6 +69,12 @@ questions, and the dispatcher files each one as an issue labeled
   Claude session with your answer, as soon as you comment on the question
   (as `HUMAN_REVIEWER`) or close it. Closing without a reply means "go with
   your recommendation". Comments from anyone else are not passed to Claude.
+
+The dispatcher files one more kind itself: **Help needed** (`Help needed on
+#n: CI is still failing on #pr after 2 rounds`), when a PR runs out of fix
+rounds. It lists the failing jobs, blocks the issue, and works like a blocking
+question. Your reply is passed to Claude, which continues on the PR with fresh
+fix rounds; closing it lets Claude try again on its own.
 
 The same question is never filed twice for an issue.
 

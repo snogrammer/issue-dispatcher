@@ -331,6 +331,44 @@ export class StateStore {
     })();
   }
 
+  // --- Instance lease -------------------------------------------------------
+
+  /**
+   * Take or renew the lease on this database for `holder`. Fails while
+   * another holder's heartbeat is younger than `staleMs`; an older one is
+   * taken over (its process is gone or hung). Immediate, so two processes
+   * can't both win.
+   */
+  acquireLease(holder: string, staleMs: number): { ok: true } | { ok: false; holder: string } {
+    return this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare("SELECT holder, heartbeat_at FROM instance_lease WHERE id = 1")
+          .get() as { holder: string; heartbeat_at: string } | undefined;
+        const now = this.now();
+        if (
+          row !== undefined &&
+          row.holder !== holder &&
+          now.getTime() - Date.parse(row.heartbeat_at) < staleMs
+        ) {
+          return { ok: false as const, holder: row.holder };
+        }
+        this.db
+          .prepare(
+            `INSERT INTO instance_lease (id, holder, heartbeat_at) VALUES (1, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET holder = excluded.holder, heartbeat_at = excluded.heartbeat_at`,
+          )
+          .run(holder, now.toISOString());
+        return { ok: true as const };
+      })
+      .immediate();
+  }
+
+  /** Give the lease up (on a clean stop), if `holder` has it. */
+  releaseLease(holder: string): void {
+    this.db.prepare("DELETE FROM instance_lease WHERE id = 1 AND holder = ?").run(holder);
+  }
+
   // --- Governor -------------------------------------------------------------
 
   getGovernor(): Governor {

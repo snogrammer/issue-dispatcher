@@ -69,7 +69,15 @@ export interface FiledQuestions {
 const MARKER =
   /<!-- claude-dispatcher:question source=(\d+) key=([0-9a-f]+) blocking=(true|false) -->/;
 
-export function fingerprint(kind: "followup" | "decision", title: string): string {
+/** A blocking question the dispatcher raises itself, e.g. when fix rounds run out. */
+export interface Escalation {
+  /** Unique per situation, e.g. the PR and head it's about; deduplicates re-filing. */
+  key: string;
+  title: string;
+  body: string;
+}
+
+export function fingerprint(kind: "followup" | "decision" | "escalation", title: string): string {
   const normalized = title.trim().toLowerCase().replace(/\s+/g, " ");
   return createHash("sha256").update(`${kind}:${normalized}`).digest("hex").slice(0, 12);
 }
@@ -134,7 +142,30 @@ export class QuestionDesk {
    * blocking questions become dependencies of the source issue.
    */
   async fileFromReport(context: WorkContext, report: Report): Promise<FiledQuestions> {
-    const drafts = draftsFromReport(context.issue, report, this.config.humanReviewer);
+    return this.file(context, draftsFromReport(context.issue, report, this.config.humanReviewer));
+  }
+
+  /**
+   * File a blocking question from the dispatcher itself, assigned to the
+   * human reviewer. Answering or closing it resumes the source issue the same
+   * way as Claude's own questions. Returns the open question, or undefined if
+   * the same one was already filed and closed.
+   */
+  async escalate(context: WorkContext, escalation: Escalation): Promise<Issue | undefined> {
+    const source = context.issue.number;
+    const key = fingerprint("escalation", escalation.key);
+    const filed = await this.file(context, [
+      {
+        key,
+        blocking: true,
+        title: escalation.title,
+        body: `${escalation.body}\n\n${marker({ source, key, blocking: true })}`,
+      },
+    ]);
+    return filed.blocking[0];
+  }
+
+  private async file(context: WorkContext, drafts: QuestionDraft[]): Promise<FiledQuestions> {
     const filed: FiledQuestions = { blocking: [], created: [] };
     if (drafts.length === 0) return filed;
 

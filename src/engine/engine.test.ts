@@ -286,6 +286,51 @@ describe("after a run", () => {
     },
   );
 
+  it("doesn't push when the report's checks failed or couldn't run (#52)", async () => {
+    const { gitea, engine, store, runner, workspace } = setup();
+    gitea.addIssue(A, { number: 1 });
+    runner.script({
+      report: report(1, {
+        checks: [
+          { command: "uv run pytest", result: "not_run", note: "no Python here" },
+          { command: "uv run ruff check", result: "failed", note: "E501" },
+          { command: "pnpm test", result: "passed", note: "" },
+        ],
+      }),
+    });
+
+    await cycle(engine);
+
+    expect(workspace(A).pushed).toEqual([]);
+    expect(store.getWork(A, 1)?.state).toBe("blocked");
+    const comment = gitea.commentsOn(A, 1).at(-1) ?? "";
+    expect(comment).toContain("checks didn't pass locally, so nothing was pushed");
+    expect(comment).toContain("- `uv run pytest`: not run. no Python here");
+    expect(comment).toContain("- `uv run ruff check`: failed. E501");
+    expect(comment).not.toContain("pnpm test");
+    expect(comment).toContain("`.tool-versions`");
+
+    // The finished run isn't repeated on later polls.
+    await cycle(engine);
+    expect(runner.requests).toHaveLength(1);
+  });
+
+  it("runs Claude with the installed toolchain, and tells it what couldn't be installed", async () => {
+    const { gitea, engine, runner, workspace } = setup();
+    gitea.addIssue(A, { number: 1 });
+    workspace(A).toolchain = {
+      env: { ASDF_PYTHON_VERSION: "3.12.9" },
+      problems: ["Installing ruby 3.4.1 (from .ruby-version) failed: BUILD FAILED"],
+    };
+
+    await cycle(engine);
+
+    expect(runner.requests[0]?.env).toEqual({ ASDF_PYTHON_VERSION: "3.12.9" });
+    expect(runner.requests[0]?.systemPrompt).toContain(
+      "Installing ruby 3.4.1 (from .ruby-version) failed: BUILD FAILED",
+    );
+  });
+
   it("blocks when the workspace can't be prepared", async () => {
     const { gitea, engine, workspace } = setup();
     workspace(A).failPrepare = true;
@@ -680,6 +725,41 @@ describe("restarts", () => {
     await cycle(restarted);
     expect(runner.requests.at(-1)).toMatchObject({ issue: 1, resumeSessionId: "session-1" });
     expect(gitea.labelNames(A, 1)).toEqual(["claude:in-review"]);
+  });
+
+  it("waits while another dispatcher holds the database, then takes over", async () => {
+    const { make } = setup();
+    const first = make();
+    await first.start();
+    const second = make({ leaseRetryMs: 5 });
+    let started = false;
+    const starting = second.start().then(() => (started = true));
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(started).toBe(false);
+    expect(second.watchedRepos()).toEqual([]);
+
+    await first.stop();
+    await starting;
+    expect(started).toBe(true);
+    await second.stop();
+  });
+
+  it("stops polling if another dispatcher took the database over", async () => {
+    const { gitea, store, runner, clock, make } = setup();
+    const engine = make();
+    await engine.start();
+    await engine.stop();
+    gitea.addIssue(A, { number: 1 });
+    const revived = make();
+    await revived.start();
+    // A stale-lease takeover by another process while this one was hung.
+    clock.now = new Date(clock.now.getTime() + 10 * 60_000);
+    expect(store.acquireLease("other-host:1:abcd", 5 * 60_000)).toEqual({ ok: true });
+
+    await cycle(revived);
+    expect(runner.requests).toEqual([]);
+    await revived.stop();
   });
 
   it("rebuilds an empty store from labels", async () => {

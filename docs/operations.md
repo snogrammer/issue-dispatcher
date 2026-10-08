@@ -106,6 +106,41 @@ An issue left `working` after a successful run (e.g. the dispatcher stopped
 between the run and its push) is blocked the same way on the next poll rather
 than run again, so a successful session is never repeated and re-billed.
 
+## An issue is blocked: "checks didn't pass locally"
+
+Claude's report listed checks that failed or couldn't run, so nothing was
+pushed (CI is the confirmation, not the place to find failures). The comment
+lists each check with Claude's note.
+
+- **not run** usually means a missing toolchain. Pin the version in the repo
+  (`.tool-versions`, `.python-version`, `.ruby-version`, `.node-version`); it's
+  installed before the next run. Look for `toolchain install failed` in the
+  logs if a pinned version didn't install (a compile error, or
+  `TOOLCHAIN_INSTALL_TIMEOUT_MIN` too short). System libraries go in
+  `EXTRA_APT_PACKAGES` (see [deploy.md](deploy.md#project-toolchains)).
+- **failed** means Claude couldn't get it green. Look at the branch locally,
+  or comment on the issue with guidance.
+
+Then remove the `claude:blocked` label to start the issue over.
+
+## An issue is blocked with a "Help needed" ticket
+
+A PR used up its `MAX_FIX_ATTEMPTS` fix rounds (CI, review or rebase) on the
+same problem. Rather than guess again, the dispatcher filed a
+`claude:question` issue assigned to `HUMAN_REVIEWER`, with the failing jobs.
+Reply there (work continues with your answer and fresh rounds) or close it
+(Claude tries again on its own).
+
+## "another dispatcher is using this data directory"
+
+Each dispatcher holds a lease on its database, renewed every poll, so two
+processes can never work the same issues. A second process sharing the data
+directory (a second container, or `pnpm dev` pointed at the same `DATA_DIR`)
+waits until the first stops. After a crash the lease goes stale and is taken
+over after 5 polls (5 minutes by default). A running dispatcher whose lease was
+taken over logs `another dispatcher took over this data directory` and stops
+polling until it gets it back.
+
 ## Startup failures
 
 Bad configuration, a wrong `BOT_USERNAME`, an unreachable Gitea, or a

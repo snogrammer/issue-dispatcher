@@ -3,7 +3,7 @@ import type { Report } from "../claude/report.js";
 import type { Config, Phase } from "../config/schema.js";
 import type { GiteaClient } from "../gitea/client.js";
 import { GiteaError } from "../gitea/http.js";
-import type { CombinedStatus, PullRequest } from "../gitea/types.js";
+import type { CombinedStatus, PullRequest, WorkflowRun } from "../gitea/types.js";
 import { silentLogger, type Logger } from "../log.js";
 import {
   blockForReport,
@@ -13,6 +13,7 @@ import {
   type WorkContext,
   type WorkspaceLike,
 } from "./lifecycle.js";
+import type { Escalation } from "./questions.js";
 
 /**
  * From pushed branches to merged PRs. After an implement run it opens one PR
@@ -24,7 +25,7 @@ import {
  *   `/merge` by reviewer ▶ merge now
  *   changes requested ───▶ address-review run
  *   CI green ────────────▶ merge
- *   CI red ──────────────▶ fix-ci run with the failing logs
+ *   CI red ──────────────▶ fix-ci run with the failing logs (once all runs finish)
  *   no CI at all ────────▶ wait, then blocked (REQUIRE_CI)
  *
  * Fix and review rounds share MAX_FIX_ATTEMPTS per PR; a round that pushes no
@@ -219,7 +220,11 @@ class PrLifecycle implements Lifecycle {
     } else if (PASSING.includes(status.state)) {
       await this.merge(current, pull, actions);
     } else if (FAILING.includes(status.state)) {
-      const failures = await this.ciFailures(current, pull, status);
+      // Gitea reports failure as soon as one job fails. Wait for the rest, so
+      // one round sees every failure instead of chasing them one at a time.
+      const runs = await this.gitea.listWorkflowRuns(context.repo.ref, { headSha: pull.head.sha });
+      if (runs.some((run) => run.status !== "completed")) return;
+      const failures = await this.ciFailures(current, runs, status);
       await this.fixRound(current, pull, actions, "fix-ci", { failures });
     }
     // Otherwise CI is pending; check again next poll.
@@ -256,15 +261,7 @@ class PrLifecycle implements Lifecycle {
     const attempts = context.work.fixAttempts;
     const max = this.config.maxFixAttempts;
     if (attempts >= max) {
-      const what = {
-        "fix-ci": "CI is still failing",
-        "address-review": "Review feedback is still open",
-        rebase: `It still conflicts with \`${details.onto ?? pull.base.ref}\``,
-      }[phase];
-      await actions.block(
-        context,
-        `${what} on #${String(pull.number)} after ${String(max)} rounds. Comment \`/merge\` on #${String(pull.number)} to merge anyway.`,
-      );
+      await actions.escalate(context, escalation(context, pull, phase, details, max));
       return;
     }
     const next = actions.update(context, { fixAttempts: attempts + 1 });
@@ -437,11 +434,10 @@ class PrLifecycle implements Lifecycle {
   /** Failing Actions jobs with their log tails; plain commit statuses as a fallback. */
   private async ciFailures(
     context: WorkContext,
-    pull: PullRequest,
+    runs: WorkflowRun[],
     status: CombinedStatus,
   ): Promise<CiFailure[]> {
     const failures: CiFailure[] = [];
-    const runs = await this.gitea.listWorkflowRuns(context.repo.ref, { headSha: pull.head.sha });
     for (const run of runs.filter((r) => r.conclusion === "failure")) {
       const jobs = await this.gitea.listRunJobs(context.repo.ref, run.id);
       for (const job of jobs.filter((j) => j.conclusion === "failure")) {
@@ -460,6 +456,40 @@ class PrLifecycle implements Lifecycle {
     }
     return failures.slice(0, MAX_FAILURES);
   }
+}
+
+/**
+ * The ticket filed for the human when a PR's fix rounds run out: what keeps
+ * failing, and how to answer. One per PR head, so a new push that fails again
+ * gets its own ticket.
+ */
+function escalation(
+  context: WorkContext,
+  pull: PullRequest,
+  phase: "fix-ci" | "address-review" | "rebase",
+  details: RunDetails,
+  rounds: number,
+): Escalation {
+  const pr = `#${String(pull.number)}`;
+  const what = {
+    "fix-ci": `CI is still failing on ${pr}`,
+    "address-review": `Review feedback is still open on ${pr}`,
+    rebase: `${pr} still conflicts with \`${details.onto ?? pull.base.ref}\``,
+  }[phase];
+  const failures = (details.failures ?? []).map(
+    (failure) => `- ${failure.url ? `[${failure.name}](${failure.url})` : failure.name}`,
+  );
+  return {
+    key: `${phase}:${String(pull.number)}:${pull.head.sha}`,
+    title: `Help needed on #${String(context.issue.number)}: ${what} after ${String(rounds)} rounds`,
+    body: [
+      `While working on #${String(context.issue.number)} (${context.issue.title}), ${what.charAt(0).toLowerCase()}${what.slice(1)} after ${String(rounds)} automatic rounds (head ${pull.head.sha.slice(0, 7)}), so the dispatcher stopped instead of guessing again.`,
+      failures.length > 0 ? `Failing jobs:\n\n${failures.join("\n")}` : "",
+      `What happens next:\n\n- Reply here with what should change; Claude continues on ${pr} with your answer and gets ${String(rounds)} fresh rounds.\n- Close this issue to let Claude try again as it sees fit.\n- To ship ${pr} as it is, merge it yourself, then close this issue and #${String(context.issue.number)}.`,
+    ]
+      .filter((part) => part !== "")
+      .join("\n\n"),
+  };
 }
 
 /** Drop "Closes #N"-style references to this issue; the dispatcher owns the link. */

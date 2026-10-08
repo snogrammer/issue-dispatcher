@@ -7,7 +7,7 @@
 set -eu
 
 if [ "$(id -u)" = 0 ]; then
-  for dir in "${DATA_DIR:-/data}" "${WORKSPACE_DIR:-/workspaces}"; do
+  for dir in "${DATA_DIR:-/data}" "${WORKSPACE_DIR:-/workspaces}" "${ASDF_DATA_DIR:-/toolchains}"; do
     mkdir -p "$dir"
     # Only the top level is checked, so restarts with large workspaces stay fast.
     if [ "$(stat -c %u "$dir")" != 10001 ]; then

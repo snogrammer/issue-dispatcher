@@ -3,6 +3,7 @@ import type { Report } from "../claude/report.js";
 import type { CiFailure, ReviewNote } from "../claude/prompts.js";
 import type { Phase } from "../config/schema.js";
 import type { Issue } from "../gitea/types.js";
+import type { Escalation } from "./questions.js";
 import type { IssueWork, WorkPatch } from "../state/store.js";
 import type { Workspace } from "../workspace/git.js";
 import type { WatchedRepo } from "./repos.js";
@@ -23,7 +24,14 @@ export interface WorkContext {
 
 export type WorkspaceLike = Pick<
   Workspace,
-  "dir" | "prepare" | "push" | "isClean" | "commitsAhead" | "rebaseOnto" | "isAncestor"
+  | "dir"
+  | "prepare"
+  | "ensureToolchain"
+  | "push"
+  | "isClean"
+  | "commitsAhead"
+  | "rebaseOnto"
+  | "isAncestor"
 >;
 
 export interface RunDetails {
@@ -45,6 +53,11 @@ export interface EngineActions {
   comment(context: WorkContext, body: string): Promise<void>;
   /** Mark blocked and explain why and how to continue. */
   block(context: WorkContext, reason: string): Promise<void>;
+  /**
+   * File a blocking question for the human reviewer and block until it's
+   * answered (then the work resumes with the answer).
+   */
+  escalate(context: WorkContext, escalation: Escalation): Promise<void>;
   /** Release the repo slot and remove state labels. */
   finish(context: WorkContext, outcome: "done" | "abandoned"): Promise<void>;
   /** The repo's workspace (only touch it while no run is going). */
@@ -69,7 +82,8 @@ export interface Lifecycle {
 }
 
 /**
- * Block when a report has nothing to ship. (Reports that need a human answer
+ * Block when a report has nothing to ship, or its checks didn't all pass
+ * locally. (Reports that need a human answer
  * never get here: the engine files their questions and blocks first.)
  * Returns true if it blocked.
  */
@@ -93,6 +107,23 @@ export async function blockForReport(
         ? "Claude found nothing to change."
         : `The ${phase} round made no changes.`;
     await actions.block(context, `${what}\n\n${report.summary}`);
+    return true;
+  }
+  // CI is the last line of defence, not the first: never push work whose
+  // checks failed or could not run locally (#52).
+  const unmet = report.checks.filter((check) => check.result !== "passed");
+  if (unmet.length > 0) {
+    const lines = unmet.map(
+      (check) =>
+        `- \`${check.command}\`: ${check.result === "failed" ? "failed" : "not run"}${check.note ? `. ${check.note}` : ""}`,
+    );
+    const hint = unmet.some((check) => check.result === "not_run")
+      ? "\n\nChecks that can't run usually mean a missing toolchain. Pin the version in the repo (`.tool-versions`, `.python-version`, `.ruby-version` or `.node-version`; the dispatcher installs it with asdf), or add it to the image (`ASDF_PRELOAD`, `EXTRA_APT_PACKAGES`)."
+      : "";
+    await actions.block(
+      context,
+      `The ${phase} round's checks didn't pass locally, so nothing was pushed:\n\n${lines.join("\n")}${hint}\n\n${report.summary}`,
+    );
     return true;
   }
   return false;

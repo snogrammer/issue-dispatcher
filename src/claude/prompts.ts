@@ -26,6 +26,8 @@ export interface PromptContext {
   branch: string;
   /** The branch PRs target, normally the default branch. */
   baseBranch: string;
+  /** Pinned language versions the dispatcher couldn't install before the run. */
+  toolchainProblems?: string[];
 }
 
 export interface CiFailure {
@@ -47,15 +49,21 @@ export function systemRules(context: PromptContext): string {
 
 How your work ships:
 - You commit locally. The dispatcher pushes your branches and opens the PRs after you finish. Do not run \`git push\`, do not change git remotes or credentials, and do not call the Gitea API.
-- PRs are merged automatically once CI passes. Nobody reviews them first. CI is the only safety net.
+- PRs are merged automatically once CI passes. Nobody reviews them first.
+- Your branches are only pushed if every check you report passed. CI then confirms; it is not where problems get found.
 
 So:
-- Write or update tests that would fail if the change were wrong. Run the project's tests, linters and type checks before finishing, and fix what fails.
+- Write or update tests that would fail if the change were wrong.
+- Before finishing, run the same checks the repo's CI runs (its .gitea/workflows or .github/workflows files are the reference: tests, linters, formatters, type checks, builds) on your final commit, and fix what fails. Report each one under "checks".
 - Never skip, delete or weaken tests, CI workflows, lint rules or type checks to get green.
 - Keep changes small and focused on the issue. If the work is large, split it into a stack of branches: ${branch} first, then ${branch}-part-2, ${branch}-part-3, each based on the previous one, each reviewable on its own.
 - The dispatcher adds the issue link to each PR body; don't write "Closes #N" or similar yourself.
 - Follow the repository's own conventions (README, CONTRIBUTING, CLAUDE.md, existing code).
 - Leave the working tree clean: everything you want shipped is committed on the branches you report.
+
+Toolchains:
+- Language versions are managed by asdf. The versions this repo pins are installed before you start; if you need another, run \`asdf install <tool> <version>\` (e.g. python 3.12.7). Install project dependencies the way the repo does (uv sync, bundle install, pnpm install, ...).
+- If a check still can't run, report it as "not_run" with the reason. Never guess that code passes, and never leave checks for CI to run.${toolchainNote(context)}
 
 Open questions:
 - If something is ambiguous, pick the option you would recommend, carry on, and record it under "decisions". Set needsConfirmation when a human should confirm it afterwards.
@@ -63,6 +71,12 @@ Open questions:
 - Only if you cannot proceed safely without an answer: add a followup with blocking: true and finish with outcome "needs_human".
 
 Your final answer is the structured report. List every branch with commits, bottom of the stack first, each with a PR title and description.`;
+}
+
+function toolchainNote(context: PromptContext): string {
+  const problems = context.toolchainProblems ?? [];
+  if (problems.length === 0) return "";
+  return `\n- Before this run, installing the repo's pinned versions failed:\n${problems.map((problem) => `  - ${problem.replaceAll("\n", " ")}`).join("\n")}`;
 }
 
 export function buildPrompt(
@@ -107,11 +121,11 @@ function fixCiPrompt(context: PromptContext, failures: CiFailure[]): string {
       fence(`ci-log ${failure.name}`, `${failure.url ? `${failure.url}\n` : ""}${failure.logTail}`),
     )
     .join("\n\n");
-  return `CI failed on ${context.branch} for issue #${String(context.issue.number)}. Find the cause, fix it, and commit the fix on the same branch.
+  return `CI failed on ${context.branch} for issue #${String(context.issue.number)}. Reproduce the failure locally by running the failing checks, find the cause, fix it, rerun the checks until they pass, and commit the fix on the same branch.
 
-Fix the code or the tests where they are actually wrong. Do not disable checks.
+Fix the code or the tests where they are actually wrong. Do not disable checks. If you can't reproduce the failure locally, don't guess at a fix: report the check as "not_run" and say why.
 
-${sections || "No log output was available; reproduce the failure locally by running the project's checks."}`;
+${sections || "No log output was available; run the project's checks to find what fails."}`;
 }
 
 function addressReviewPrompt(context: PromptContext, notes: ReviewNote[]): string {

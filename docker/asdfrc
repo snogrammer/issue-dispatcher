@@ -1,0 +1,3 @@
+# Honour .python-version, .ruby-version, .node-version and .nvmrc as well as
+# .tool-versions when resolving a tool's version.
+legacy_version_file = yes

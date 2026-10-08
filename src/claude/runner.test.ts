@@ -117,7 +117,13 @@ describe("runClaude", () => {
     });
     expect(call.stdin).toBe("Implement issue #7");
     expect(call.cwd).toBe(await import("node:fs").then((fs) => fs.realpathSync(dir)));
-    expect(call.env).toEqual({ GITEA_TOKEN: null, KEEP_ME: "yes" });
+    expect(call.env).toEqual({ GITEA_TOKEN: null, KEEP_ME: "yes", ASDF_PYTHON_VERSION: null });
+  });
+
+  it("adds the request's environment, e.g. toolchain versions", async () => {
+    const { options, request, recorded } = setup("success");
+    await runClaude(options, { ...request, env: { ASDF_PYTHON_VERSION: "3.12.9" } });
+    expect(recorded().env).toMatchObject({ GITEA_TOKEN: null, ASDF_PYTHON_VERSION: "3.12.9" });
   });
 
   it("uses a caller-chosen ID for a new session", async () => {

@@ -19,6 +19,10 @@ const REPORT: Report = {
     },
   ],
   followups: [{ title: "Later", body: "...", blocking: false }],
+  checks: [
+    { command: "pnpm test", result: "passed", note: "" },
+    { command: "pnpm lint", result: "not_run", note: "no eslint config" },
+  ],
 };
 
 describe("checkReport", () => {
@@ -73,7 +77,7 @@ describe("reportJsonSchema", () => {
     expect(schema).toMatchObject({
       type: "object",
       additionalProperties: false,
-      required: ["outcome", "summary", "branches", "decisions", "followups"],
+      required: ["outcome", "summary", "branches", "decisions", "followups", "checks"],
     });
   });
 });

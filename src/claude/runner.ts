@@ -75,6 +75,8 @@ export interface RunRequest {
   /** ID for a new session, so the caller can record it before the run starts. */
   sessionId?: string | undefined;
   signal?: AbortSignal | undefined;
+  /** Added to the child's environment, e.g. the toolchain versions to use. */
+  env?: Record<string, string> | undefined;
 }
 
 const STDERR_TAIL_BYTES = 8 * 1024;
@@ -139,7 +141,7 @@ export function runClaude(options: RunnerOptions, request: RunRequest): Promise<
   return new Promise((resolve) => {
     const child = spawn(options.bin, buildArgs(options, request, sessionId), {
       cwd: request.cwd,
-      env: childEnv(options.env ?? process.env),
+      env: { ...childEnv(options.env ?? process.env), ...request.env },
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
     });

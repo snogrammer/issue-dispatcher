@@ -57,6 +57,9 @@ export function createApp(
           userName: config.git.userName,
           userEmail: config.git.userEmail,
           labelPrefix: config.labelPrefix,
+          ...(config.toolchain.autoInstall
+            ? { toolchain: { timeoutMs: config.toolchain.installTimeoutMin * 60_000 } }
+            : {}),
         },
         repo.ref,
       ),

@@ -49,6 +49,10 @@ services:
     volumes:
       - ${DISPATCHER_DATA_PATH:?set DISPATCHER_DATA_PATH}:/data
       - ${DISPATCHER_WORKSPACES_PATH:?set DISPATCHER_WORKSPACES_PATH}:/workspaces
+      # Language versions installed with asdf (see docs/deploy.md). A named
+      # volume, not a bind mount: Docker seeds it from the image's preloaded
+      # versions, and builds only work at the path they were built for.
+      - toolchains:/toolchains
     mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
     # Time for SIGTERM handling to stop in-flight Claude runs cleanly.
     stop_grace_period: 30s
@@ -57,6 +61,9 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+volumes:
+  toolchains: {}
 
 networks:
   # Shared with Caddy so it can proxy to claude-dispatcher:8080. It must already
