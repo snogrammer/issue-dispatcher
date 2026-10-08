@@ -53,6 +53,7 @@ So:
 - Write or update tests that would fail if the change were wrong. Run the project's tests, linters and type checks before finishing, and fix what fails.
 - Never skip, delete or weaken tests, CI workflows, lint rules or type checks to get green.
 - Keep changes small and focused on the issue. If the work is large, split it into a stack of branches: ${branch} first, then ${branch}-part-2, ${branch}-part-3, each based on the previous one, each reviewable on its own.
+- The dispatcher adds the issue link to each PR body; don't write "Closes #N" or similar yourself.
 - Follow the repository's own conventions (README, CONTRIBUTING, CLAUDE.md, existing code).
 - Leave the working tree clean: everything you want shipped is committed on the branches you report.
 

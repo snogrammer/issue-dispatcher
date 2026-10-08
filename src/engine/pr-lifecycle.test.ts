@@ -51,6 +51,43 @@ describe("opening pull requests", () => {
     expect(fixture.gitea.commentsOn(A, 1).at(-1)).toContain("Opened #3.");
   });
 
+  it("owns the issue link: strips Claude's closing keywords for this issue only", async () => {
+    const fixture = withPrs();
+    fixture.runner.script({
+      report: report(1, {
+        branches: [
+          {
+            name: "claude/1-x",
+            title: "Part 1",
+            body: "one\n\nCloses #1\n\nAlso fixes #12 and resolves #1.",
+          },
+          { name: "claude/1-x-part-2", title: "Part 2", body: "two\n\nFixes #1" },
+        ],
+      }),
+    });
+    await toReview(fixture);
+
+    const lower = fixture.gitea.pull(A, 2).body;
+    expect(lower).not.toMatch(/closes #1\b/i);
+    expect(lower).not.toMatch(/resolves #1\b/i);
+    expect(lower).toContain("fixes #12");
+    expect(lower).toContain("Part of #1 (1 of 2 in a stack).");
+    const top = fixture.gitea.pull(A, 3).body;
+    expect(top).not.toMatch(/fixes #1\b/i);
+    expect(top.match(/Closes #1/g)).toHaveLength(1);
+  });
+
+  it("has exactly one Closes line on a single PR", async () => {
+    const fixture = withPrs();
+    fixture.runner.script({
+      report: report(1, {
+        branches: [{ name: "claude/1-x", title: "T", body: "Done.\n\nCloses #1" }],
+      }),
+    });
+    await toReview(fixture);
+    expect(fixture.gitea.pull(A, 2).body.match(/Closes #1/g)).toHaveLength(1);
+  });
+
   it("opens a stack where only the top PR closes the issue", async () => {
     const fixture = withPrs();
     fixture.runner.script({

@@ -462,6 +462,21 @@ class PrLifecycle implements Lifecycle {
   }
 }
 
+/** Drop "Closes #N"-style references to this issue; the dispatcher owns the link. */
+function stripClosingRefs(body: string, issueNumber: number): string {
+  const pattern = new RegExp(
+    `\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\b:?[ \\t]+#${String(issueNumber)}(?!\\d)[.,;]?`,
+    "gi",
+  );
+  return body
+    .replace(pattern, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function pullBody(context: WorkContext, report: Report, index: number): string {
   const branch = report.branches[index];
   const total = report.branches.length;
@@ -476,7 +491,7 @@ function pullBody(context: WorkContext, report: Report, index: number): string {
       ? `Closes ${issue}`
       : `Part of ${issue} (${String(index + 1)} of ${String(total)} in a stack).`;
   return [
-    branch?.body ?? "",
+    stripClosingRefs(branch?.body ?? "", context.issue.number),
     decisions.length > 0 ? `## Decisions\n\n${decisions.join("\n")}` : "",
     link,
     "---\nOpened by IssueDispatcher. Merges automatically when CI passes.",
