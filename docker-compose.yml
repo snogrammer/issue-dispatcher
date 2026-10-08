@@ -17,6 +17,9 @@ services:
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-stable}
         EXTRA_APT_PACKAGES: ${EXTRA_APT_PACKAGES:-}
         ASDF_PRELOAD: ${ASDF_PRELOAD:-python latest:3.12 ruby latest:3.3}
+        # "none" installs no plugins; see docs/plugins.md.
+        CLAUDE_PLUGINS: ${CLAUDE_PLUGINS:-typescript-lsp@claude-plugins-official pyright-lsp@claude-plugins-official}
+        CLAUDE_MARKETPLACES: ${CLAUDE_MARKETPLACES:-anthropics/claude-plugins-official}
     image: claude-dispatcher:local
     restart: unless-stopped
     # DISPATCHER_ENV_FILE lets scripts/dev-gitea.sh point at its own file

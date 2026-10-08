@@ -108,6 +108,8 @@ Configure it on the repository (or organisation):
 | var    | `IMAGE`                 | image path (default `claude-dispatcher`)                             |
 | var    | `IMAGE_PLATFORMS`       | e.g. `linux/amd64 linux/arm64` (default `linux/amd64`)               |
 | var    | `CLAUDE_CODE_VERSION`   | Claude Code dist-tag or version to bake in (default `stable`)        |
+| var    | `CLAUDE_PLUGINS`        | Claude Code plugins to bake in, or `none` ([plugins](plugins.md))    |
+| var    | `CLAUDE_MARKETPLACES`   | marketplaces those plugins come from                                 |
 | var    | `PORTAINER_URL`         | e.g. `https://portainer.example.com`; without it there's no redeploy |
 | var    | `PORTAINER_STACK_ID`    | the stack's ID (from its URL); without it there's no redeploy        |
 | var    | `PORTAINER_ENDPOINT_ID` | Portainer environment ID (default `1`)                               |
@@ -133,8 +135,11 @@ from issue labels and resumes them.
   upgrade with `CLAUDE_CODE_VERSION=2.1.285 docker compose build`; for
   published images set the `CLAUDE_CODE_VERSION` var. The CLI's self-updater
   is disabled; rebuild to upgrade.
-- **Settings**: the image has no user-level Claude Code settings, plugins or
-  hooks. A repo's own `.claude/` settings and `CLAUDE.md` still apply.
+- **Plugins**: the image installs the TypeScript and Python
+  language-server plugins, which have no hooks. `CLAUDE_PLUGINS` changes the
+  list; see [plugins.md](plugins.md).
+- **Settings**: the image has no user-level Claude Code settings or hooks. A
+  repo's own `.claude/` settings and `CLAUDE.md` still apply.
 
 ## Project toolchains
 

@@ -38,6 +38,11 @@ ARG ASDF_VERSION=0.20.2
 ARG ASDF_SHA256_AMD64=6d45e6fab12f50a259b5643adf06a2e77af30a87300b4402440eda09af467a6d
 ARG ASDF_SHA256_ARM64=356e135a608bdfba34038c1f18c4b82434d7b6d546e30dbf372c61baaa2f442c
 ARG TARGETARCH
+# Claude Code plugins installed for the dispatcher's runs (plugin@marketplace,
+# space-separated; "none" for none), and the marketplaces they come from.
+# The LSP plugins use the language servers installed below. See docs/plugins.md.
+ARG CLAUDE_PLUGINS="typescript-lsp@claude-plugins-official pyright-lsp@claude-plugins-official"
+ARG CLAUDE_MARKETPLACES="anthropics/claude-plugins-official"
 
 # tini: PID 1 that reaps the orphans left when a timed-out Claude run's
 # process group is killed (otherwise they stay zombies). The rest lets asdf
@@ -63,7 +68,10 @@ RUN case "${TARGETARCH:-amd64}" in \
   && tar -xzf /tmp/asdf.tgz -C /usr/local/bin asdf \
   && rm /tmp/asdf.tgz
 COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
+# typescript-language-server and pyright back the typescript-lsp and
+# pyright-lsp plugins.
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+     typescript-language-server typescript pyright \
   && npm cache clean --force \
   && corepack enable
 
@@ -80,8 +88,11 @@ ENV ASDF_DATA_DIR=/toolchains \
     PATH=/toolchains/shims:$PATH
 COPY docker/asdfrc /etc/asdfrc
 COPY --chmod=755 docker/asdf-preload.sh /usr/local/bin/asdf-preload
+COPY --chmod=755 docker/claude-plugins.sh /usr/local/bin/claude-plugins
 USER dispatcher
 RUN HOME=/home/dispatcher asdf-preload ${ASDF_PRELOAD}
+# In the image, not a volume: rebuilding upgrades them along with the CLI.
+RUN HOME=/home/dispatcher CLAUDE_MARKETPLACES="${CLAUDE_MARKETPLACES}" claude-plugins ${CLAUDE_PLUGINS}
 USER root
 
 WORKDIR /app

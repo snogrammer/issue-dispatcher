@@ -21,6 +21,11 @@ name: Publish
 #            ASDF_PRELOAD                 language versions baked into the image, e.g.
 #                                         "python latest:3.12 ruby latest:3.3"
 #                                         (default: the Dockerfile's)
+#            CLAUDE_PLUGINS               Claude Code plugins baked into the image
+#                                         (plugin@marketplace, space-separated, or
+#                                         "none"; default: the Dockerfile's)
+#            CLAUDE_MARKETPLACES          marketplaces those plugins come from
+#                                         (default: the Dockerfile's)
 # Without REGISTRY nothing is built, and the `config` job warns about it. Without
 # PORTAINER_URL/PORTAINER_STACK_ID the image is pushed but no redeploy happens.
 #
@@ -60,6 +65,8 @@ jobs:
       IMAGE_PLATFORMS: ${{ vars.IMAGE_PLATFORMS || 'linux/amd64' }}
       CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || 'stable' }}
       ASDF_PRELOAD: ${{ vars.ASDF_PRELOAD }}
+      CLAUDE_PLUGINS: ${{ vars.CLAUDE_PLUGINS }}
+      CLAUDE_MARKETPLACES: ${{ vars.CLAUDE_MARKETPLACES }}
       GIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       # :latest for main, the tag name (v1.2.3) for tag pushes.
       ALIAS_TAG: ${{ github.event_name == 'push' && github.ref_name || 'latest' }}
@@ -125,6 +132,8 @@ jobs:
           # Unset keeps the Dockerfile's default (an empty build arg would mean none).
           extra=()
           if [ -n "$ASDF_PRELOAD" ]; then extra+=(--build-arg ASDF_PRELOAD="$ASDF_PRELOAD"); fi
+          if [ -n "$CLAUDE_PLUGINS" ]; then extra+=(--build-arg CLAUDE_PLUGINS="$CLAUDE_PLUGINS"); fi
+          if [ -n "$CLAUDE_MARKETPLACES" ]; then extra+=(--build-arg CLAUDE_MARKETPLACES="$CLAUDE_MARKETPLACES"); fi
           for platform in $IMAGE_PLATFORMS; do
             arch="${platform#*/}"; arch="${arch//\//-}"
             ref="$REGISTRY/$IMAGE:$GIT_SHA-$arch"

@@ -67,6 +67,9 @@ is meant to run in an isolated container with no Docker socket and no
 credentials beyond Claude's own. Use `acceptEdits` or `dontAsk` with an
 allow-list in the repo's `.claude/settings.json` if that doesn't hold.
 
+The plugins Claude's runs load are chosen when the image is built
+(`CLAUDE_PLUGINS`), not in this config. See [plugins.md](plugins.md).
+
 ## YAML file
 
 Any config key can be set in the file using the keys above (camelCase, nested).
