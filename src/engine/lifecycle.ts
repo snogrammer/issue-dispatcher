@@ -118,7 +118,7 @@ export async function blockForReport(
         `- \`${check.command}\`: ${check.result === "failed" ? "failed" : "not run"}${check.note ? `. ${check.note}` : ""}`,
     );
     const hint = unmet.some((check) => check.result === "not_run")
-      ? "\n\nChecks that can't run usually mean a missing toolchain. Pin the version in the repo (`.tool-versions`, `.python-version`, `.ruby-version` or `.node-version`; the dispatcher installs it with asdf), or add it to the image (`ASDF_PRELOAD`, `EXTRA_APT_PACKAGES`)."
+      ? "\n\nChecks that can't run usually mean a missing toolchain or service. Pin the version in the repo (`.tool-versions`, `.python-version`, `.ruby-version` or `.node-version`; the dispatcher installs it with asdf), or add it to the image (`ASDF_PRELOAD`, `EXTRA_APT_PACKAGES`). Databases and caches (Postgres, Redis) run next to the dispatcher and are listed in `TEST_SERVICES`."
       : "";
     await actions.block(
       context,

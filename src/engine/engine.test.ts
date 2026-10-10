@@ -309,6 +309,7 @@ describe("after a run", () => {
     expect(comment).toContain("- `uv run ruff check`: failed. E501");
     expect(comment).not.toContain("pnpm test");
     expect(comment).toContain("`.tool-versions`");
+    expect(comment).toContain("`TEST_SERVICES`");
 
     // The finished run isn't repeated on later polls.
     await cycle(engine);
@@ -328,6 +329,19 @@ describe("after a run", () => {
     expect(runner.requests[0]?.env).toEqual({ ASDF_PYTHON_VERSION: "3.12.9" });
     expect(runner.requests[0]?.systemPrompt).toContain(
       "Installing ruby 3.4.1 (from .ruby-version) failed: BUILD FAILED",
+    );
+  });
+
+  it("tells Claude which test services run next to it", async () => {
+    const { gitea, engine, runner } = setup({
+      TEST_SERVICES: "postgres://postgres:postgres@postgres:5432,redis://redis:6379",
+    });
+    gitea.addIssue(A, { number: 1 });
+
+    await cycle(engine);
+
+    expect(runner.requests[0]?.systemPrompt).toContain(
+      "`postgres://postgres:postgres@postgres:5432`, `redis://redis:6379`",
     );
   });
 

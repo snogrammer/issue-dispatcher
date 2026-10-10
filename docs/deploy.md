@@ -33,12 +33,8 @@ apply inside the container. State lives in named volumes: `dispatcher-data`
 checkouts are re-cloned, and toolchains are re-seeded from the image and
 reinstalled on demand.
 
-Throwaway Postgres and Redis (alpine images, data in tmpfs) for test suites are
-available on the same network (`postgres:5432`, `redis:6379`):
-
-```sh
-docker compose --profile test-services up -d
-```
+Postgres and Redis for test suites start with it (see
+[Test services](#test-services)).
 
 ### Trying it against a throwaway Gitea
 
@@ -174,6 +170,27 @@ run whose checks failed or couldn't run is blocked, not pushed (see
 Preloading costs image size (about 1 GB) and build time (a few minutes per
 version), once per build. For published images, set the `ASDF_PRELOAD` repo
 variable (see `.gitea/workflows/publish.yml`).
+
+## Test services
+
+Test suites often need a database or cache, which CI provides as `services:`
+containers. Both compose files run throwaway ones next to the dispatcher:
+`postgres:17-alpine` (user and password `postgres`, or
+`TEST_POSTGRES_PASSWORD`) and `redis:8-alpine`. They're reachable as
+`postgres:5432` and `redis:6379`, the hostnames CI service containers
+usually get. Data lives in memory and is lost when they restart.
+
+`TEST_SERVICES` lists them as URLs, and Claude is told to point the repo's
+tests at them. The compose files set it; Claude shares them across runs, so
+it's told to create its own databases rather than reuse shared ones. In the
+Portainer stack they're only on a network private to the stack, because on
+the shared network the hostnames could resolve to another stack's real
+database.
+
+For another service (MySQL, Elasticsearch, …), add a container to the stack
+on the same network and append its URL to `TEST_SERVICES`. To run without
+them, remove the two services and set `TEST_SERVICES=` (empty); Claude then
+reports checks that need them as not run.
 
 ## Security
 

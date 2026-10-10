@@ -47,7 +47,7 @@ describe("loadConfig from env", () => {
       pollIntervalS: 60,
       maxConcurrentSessions: 1,
       maxFixAttempts: 2,
-      toolchain: { autoInstall: true, installTimeoutMin: 20 },
+      toolchain: { autoInstall: true, installTimeoutMin: 20, testServices: [] },
       requireCi: true,
       ciMaxQueue: 2,
       ciNoStatusTimeoutMin: 15,
@@ -187,6 +187,16 @@ describe("loadConfig from env", () => {
     ).toBe("https://blog.example.com");
     expect(loadError({ ...REQUIRED_ENV, DASHBOARD_HOME_URL: "javascript:alert(1)" })).toContain(
       "dashboard.homeUrl (DASHBOARD_HOME_URL)",
+    );
+  });
+
+  it("reads test services as a list of URLs", () => {
+    expect(
+      load({ ...REQUIRED_ENV, TEST_SERVICES: "postgres://u:p@postgres:5432, redis://redis:6379" })
+        .toolchain.testServices,
+    ).toEqual(["postgres://u:p@postgres:5432", "redis://redis:6379"]);
+    expect(loadError({ ...REQUIRED_ENV, TEST_SERVICES: "a database" })).toContain(
+      "(TEST_SERVICES)",
     );
   });
 

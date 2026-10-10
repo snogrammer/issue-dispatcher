@@ -15,6 +15,7 @@
 #   DISPATCHER_BIND_ADDR        host address the dashboard port is published on
 #                               (default: 127.0.0.1; 0.0.0.0 for a remote proxy)
 #   DISPATCHER_HOST_PORT        host port for the dashboard (default: 8080)
+#   TEST_POSTGRES_PASSWORD      password of the test Postgres (default: postgres)
 #
 # The dispatcher runs as uid 10001. If Docker creates the host directories
 # (owned by root), the entrypoint takes ownership of them before dropping
@@ -41,6 +42,8 @@ services:
       # Listen beyond the container's loopback, so Caddy and the published
       # port below can reach /healthz, /status and the dashboard.
       STATUS_HOST: 0.0.0.0
+      # The test services below, which Claude is told to run the tests against.
+      TEST_SERVICES: ${TEST_SERVICES-postgres://postgres:${TEST_POSTGRES_PASSWORD:-postgres}@postgres:5432,redis://redis:6379}
     # Caddy on ${SHARED_NETWORK} proxies to claude-dispatcher:8080; a Caddy on
     # the host (or elsewhere, with DISPATCHER_BIND_ADDR=0.0.0.0) uses this port.
     # Set DASHBOARD_TOKEN to log in; without it the dashboard stays locked.
@@ -54,6 +57,7 @@ services:
       # versions, and builds only work at the path they were built for.
       - toolchains:/toolchains
     mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
+    networks: [default, test-services]
     # Time for SIGTERM handling to stop in-flight Claude runs cleanly.
     stop_grace_period: 30s
     logging:
@@ -61,6 +65,27 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # Throwaway services for repos whose tests need them, reachable from the
+  # dispatcher as postgres:5432 and redis:6379 (the hostnames CI service
+  # containers usually get). Data lives in memory and is lost on restart.
+  # They're only on the private test-services network: on the shared network
+  # these hostnames could resolve to another stack's real database.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:-postgres}
+    tmpfs: [/var/lib/postgresql/data]
+    mem_limit: 512m
+    networks: [test-services]
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    mem_limit: 256m
+    networks: [test-services]
 
 volumes:
   toolchains: {}
@@ -71,3 +96,5 @@ networks:
   default:
     name: ${SHARED_NETWORK:-caddy_net}
     external: true
+  # Private to this stack: the dispatcher and its test services.
+  test-services: {}

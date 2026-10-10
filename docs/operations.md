@@ -118,6 +118,8 @@ lists each check with Claude's note.
   logs if a pinned version didn't install (a compile error, or
   `TOOLCHAIN_INSTALL_TIMEOUT_MIN` too short). System libraries go in
   `EXTRA_APT_PACKAGES` (see [deploy.md](deploy.md#project-toolchains)).
+  A check that needs a database or cache (Postgres, Redis) needs it running
+  and listed in `TEST_SERVICES` (see [deploy.md](deploy.md#test-services)).
 - **failed** means Claude couldn't get it green. Look at the branch locally,
   or comment on the issue with guidance.
 

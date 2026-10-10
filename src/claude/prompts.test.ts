@@ -33,6 +33,25 @@ describe("systemRules", () => {
     expect(rules).not.toContain("installing the repo's pinned versions failed");
   });
 
+  it("asks for every CI check, including ones for untouched parts", () => {
+    expect(systemRules(CONTEXT)).toContain(
+      "including the ones for parts of the repo you didn't touch",
+    );
+  });
+
+  it("lists the test services, or says there are none", () => {
+    expect(systemRules(CONTEXT)).toContain("No services (databases, caches) run next to you");
+    const rules = systemRules({
+      ...CONTEXT,
+      testServices: ["postgres://postgres:postgres@postgres:5432", "redis://redis:6379"],
+    });
+    expect(rules).toContain(
+      "These services run next to you for tests: `postgres://postgres:postgres@postgres:5432`, `redis://redis:6379`.",
+    );
+    expect(rules).toContain("Create your own database");
+    expect(rules).not.toContain("No services");
+  });
+
   it("names the pinned versions that couldn't be installed", () => {
     const rules = systemRules({
       ...CONTEXT,

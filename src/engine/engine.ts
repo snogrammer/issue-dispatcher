@@ -662,6 +662,7 @@ export class Engine {
         branch,
         baseBranch: repo.defaultBranch,
         toolchainProblems: toolchain.problems,
+        testServices: this.config.toolchain.testServices,
       };
       log.info("run started", { model: route.model, effort: route.effort, resume });
       result = await this.deps.runClaude({

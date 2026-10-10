@@ -43,6 +43,7 @@ export const ENV_VARS: readonly EnvVar[] = [
     path: ["toolchain", "installTimeoutMin"],
     kind: "int",
   },
+  { name: "TEST_SERVICES", path: ["toolchain", "testServices"], kind: "list" },
   { name: "GIT_USER_NAME", path: ["git", "userName"], kind: "string" },
   { name: "GIT_USER_EMAIL", path: ["git", "userEmail"], kind: "string" },
   { name: "CLAUDE_MODEL", path: ["routing", "default", "model"], kind: "string" },

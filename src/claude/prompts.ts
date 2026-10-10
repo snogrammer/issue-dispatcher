@@ -28,6 +28,8 @@ export interface PromptContext {
   baseBranch: string;
   /** Pinned language versions the dispatcher couldn't install before the run. */
   toolchainProblems?: string[];
+  /** Services running next to the dispatcher for tests, as URLs (#58). */
+  testServices?: string[];
 }
 
 export interface CiFailure {
@@ -54,7 +56,7 @@ How your work ships:
 
 So:
 - Write or update tests that would fail if the change were wrong.
-- Before finishing, run the same checks the repo's CI runs (its .gitea/workflows or .github/workflows files are the reference: tests, linters, formatters, type checks, builds) on your final commit, and fix what fails. Report each one under "checks".
+- Before finishing, run the same checks the repo's CI runs (its .gitea/workflows or .github/workflows files are the reference: tests, linters, formatters, type checks, builds) on your final commit, and fix what fails. Run all of them, including the ones for parts of the repo you didn't touch. Report each one under "checks".
 - Never skip, delete or weaken tests, CI workflows, lint rules or type checks to get green.
 - Keep changes small and focused on the issue. If the work is large, split it into a stack of branches: ${branch} first, then ${branch}-part-2, ${branch}-part-3, each based on the previous one, each reviewable on its own.
 - The dispatcher adds the issue link to each PR body; don't write "Closes #N" or similar yourself.
@@ -64,6 +66,7 @@ So:
 Toolchains:
 - Language versions are managed by asdf. The versions this repo pins are installed before you start; if you need another, run \`asdf install <tool> <version>\` (e.g. python 3.12.7). Install project dependencies the way the repo does (uv sync, bundle install, pnpm install, ...).
 - If a check still can't run, report it as "not_run" with the reason. Never guess that code passes, and never leave checks for CI to run.${toolchainNote(context)}
+${servicesNote(context)}
 
 Open questions:
 - If something is ambiguous, pick the option you would recommend, carry on, and record it under "decisions". Set needsConfirmation when a human should confirm it afterwards.
@@ -72,6 +75,15 @@ Open questions:
 - All of these go into one questions issue for the human, so keep each title short and specific.
 
 Your final answer is the structured report. List every branch with commits, bottom of the stack first, each with a PR title and description.`;
+}
+
+function servicesNote(context: PromptContext): string {
+  const services = context.testServices ?? [];
+  if (services.length === 0) {
+    return '- No services (databases, caches) run next to you. A check that needs one is "not_run", and its note names the service.';
+  }
+  return `- These services run next to you for tests: ${services.map((url) => `\`${url}\``).join(", ")}. Where the CI workflow declares the same service (\`services:\`), point the repo's test settings at these (e.g. TEST_DATABASE_URL), keeping CI's commands.
+- Other runs share them. Create your own database (e.g. named after your branch) rather than dropping or reusing a shared one, and don't flush data you didn't create.`;
 }
 
 function toolchainNote(context: PromptContext): string {

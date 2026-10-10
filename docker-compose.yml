@@ -1,8 +1,7 @@
 # Local development stack: builds the image from this checkout.
 #
 #   cp .env.example .env   (fill it in; the same file `pnpm dev` reads)
-#   docker compose up -d --build
-#   docker compose --profile test-services up -d   # also Postgres + Redis
+#   docker compose up -d --build   # also starts Postgres + Redis for tests
 #
 # For a Portainer deployment use docker-compose.portainer.yml instead.
 #
@@ -32,6 +31,8 @@ services:
     environment:
       DATA_DIR: /data
       WORKSPACE_DIR: /workspaces
+      # The services below, which Claude is told to run the tests against.
+      TEST_SERVICES: ${TEST_SERVICES-postgres://postgres:${TEST_POSTGRES_PASSWORD:-postgres}@postgres:5432,redis://redis:6379}
     volumes:
       - dispatcher-data:/data
       - dispatcher-workspaces:/workspaces
@@ -47,19 +48,23 @@ services:
     # ports:
     #   - "127.0.0.1:8080:8080"
 
-  # Throwaway services for repos whose tests need them (same isolated network;
-  # reach them as postgres:5432 and redis:6379).
+  # Throwaway services for repos whose tests need them, reachable from the
+  # dispatcher as postgres:5432 and redis:6379 (the hostnames CI service
+  # containers usually get). Data lives in memory and is lost on restart.
   postgres:
     image: postgres:17-alpine
-    profiles: [test-services]
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:-postgres}
     tmpfs: [/var/lib/postgresql/data]
+    mem_limit: 512m
     networks: [dispatcher]
 
   redis:
     image: redis:8-alpine
-    profiles: [test-services]
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    mem_limit: 256m
     networks: [dispatcher]
 
 networks:

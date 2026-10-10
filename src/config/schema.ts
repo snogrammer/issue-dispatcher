@@ -113,6 +113,11 @@ export const configSchema = z
         autoInstall: z.boolean().default(true),
         /** Per install; Python and Ruby compile from source. */
         installTimeoutMin: z.int().min(1).default(20),
+        /**
+         * Services running next to the dispatcher for repos' tests, as URLs
+         * (postgres://…, redis://…). Claude is told about them; none by default.
+         */
+        testServices: z.array(z.url()).default([]),
       })
       .prefault({}),
     /** Commit identity in workspaces; defaults derive from the bot account. */
