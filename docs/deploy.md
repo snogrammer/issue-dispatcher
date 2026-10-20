@@ -5,12 +5,13 @@ The image bundles Node 22, git, the Claude Code CLI, the dispatcher, and
 runs as a non-root user (uid 10001) with `tini` as PID 1 (so processes left
 behind by a timed-out Claude run are reaped) and has a healthcheck on `/healthz`.
 
-There are two compose files:
+There are three compose files:
 
-| File                           | For               | Image                    | Config      | State            |
-| ------------------------------ | ----------------- | ------------------------ | ----------- | ---------------- |
-| `docker-compose.yml`           | local development | built from the checkout  | `.env`      | named volumes    |
-| `docker-compose.portainer.yml` | a Portainer stack | pulled from the registry | `stack.env` | host bind mounts |
+| File                           | For                                | Image                    | Config                  | State            |
+| ------------------------------ | ---------------------------------- | ------------------------ | ----------------------- | ---------------- |
+| `docker-compose.yml`           | local development                  | built from the checkout  | `.env`                  | named volumes    |
+| `docker-compose.coolify.yml`   | a Coolify resource (the default)   | pulled from the registry | the resource's env vars | host bind mounts |
+| `docker-compose.portainer.yml` | a Portainer stack (an alternative) | pulled from the registry | `stack.env`             | host bind mounts |
 
 Before the first run anywhere, set up the bot account in Gitea: a non-admin
 user with write access to the watched repos, a token it owns with
@@ -44,9 +45,50 @@ starts the dispatcher against it. Add Claude credentials to `.dev-gitea.env`
 and run `scripts/dev-gitea.sh restart` for real runs.
 `scripts/dev-gitea.sh down` removes everything.
 
+## Coolify
+
+1. Create the network the dispatcher shares with Gitea, once per host:
+   `docker network create gitea_internal` (or another name, set as
+   `GITEA_NETWORK`). If Gitea runs in Coolify on the same host, add it to that
+   network with the alias `gitea` so `GITEA_URL` can stay at its default,
+   `http://gitea:3000`. If Gitea runs elsewhere, leave the network empty and
+   set `GITEA_URL` to its public URL.
+2. Add a **Docker Compose (Empty)** resource and paste
+   [`docker-compose.coolify.yml`](../docker-compose.coolify.yml) into it.
+3. Set its environment variables from
+   [`coolify.env.example`](../coolify.env.example) (the Developer view takes
+   the whole file). Generate `TEST_POSTGRES_PASSWORD` with
+   `openssl rand -hex 16`.
+4. Set the `dispatcher` service's domain to `https://<host>:8080`. Coolify's
+   proxy routes the domain to the container's port 8080; nothing is published
+   on the host.
+5. Deploy. For redeploys from CI, note the resource's UUID (in its URL) and
+   create an API token under _Keys & Tokens_ (see [Publishing](#publishing)).
+
+Besides the dispatcher's own settings, the compose file needs:
+
+| Variable                     | Purpose                                                          |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `DISPATCHER_IMAGE`           | registry path, e.g. `registry.example.com/org/claude-dispatcher` |
+| `DISPATCHER_TAG`             | tag to run (default `latest`; pin `v1.2.3` or a commit SHA)      |
+| `DISPATCHER_DATA_PATH`       | host directory for state (SQLite)                                |
+| `DISPATCHER_WORKSPACES_PATH` | host directory for repo checkouts                                |
+| `DISPATCHER_CPUS`            | CPU limit (default `2`)                                          |
+| `DISPATCHER_MEMORY_LIMIT`    | memory limit (default `4g`)                                      |
+| `GITEA_NETWORK`              | existing network shared with Gitea (default `gitea_internal`)    |
+| `TEST_POSTGRES_PASSWORD`     | password of the test Postgres                                    |
+
+The dispatcher also gets a low CPU weight, a raised OOM score and
+`no-new-privileges`, so a heavy run gives way to other services on the host.
+The [test services](#test-services) are named `dispatcher-postgres` and
+`dispatcher-redis`, reachable from the dispatcher as `postgres` and `redis`.
+
+If the registry is private, add its credentials to the Coolify server
+(`docker login` on the host) so it can pull the image.
+
 ## Portainer
 
-Create a **git-backed stack** pointing at this repository with compose path
+The alternative to Coolify. Create a **git-backed stack** pointing at this repository with compose path
 `docker-compose.portainer.yml`. Set the stack's environment variables from
 [`stack.env.example`](../stack.env.example); Portainer writes them to the
 `stack.env` the compose file reads. Besides the dispatcher's own settings, the
@@ -91,27 +133,42 @@ _Pull and redeploy_, with _Re-pull image_ on).
 ## Publishing
 
 `.gitea/workflows/publish.yml` builds and pushes the image after CI passes on
-`main`, and for `v*` tags. After a push from `main` it also redeploys the
-Portainer stack (`deploy/portainer-redeploy.sh`) and waits for the
-`claude-dispatcher` container to be healthy on the new image. Pull requests
-never publish.
+`main`, and for `v*` tags. After a push from `main` it also redeploys, picked
+by `DEPLOY_TARGET`:
+
+- `coolify` (the default): `deploy/coolify-redeploy.sh` restarts the resource
+  with freshly pulled images, then, if `COOLIFY_HEALTH_URL` is set, waits until
+  `/healthz` reports the pushed commit three times in a row.
+- `portainer`: `deploy/portainer-redeploy.sh` redeploys the git-backed stack
+  and waits for the `claude-dispatcher` container to be healthy on the new
+  image.
+- `none`: push the image only.
+
+Pull requests never publish.
 
 Configure it on the repository (or organisation):
 
-| Kind   | Name                    | Purpose                                                              |
-| ------ | ----------------------- | -------------------------------------------------------------------- |
-| var    | `REGISTRY`              | registry host; without it nothing is built                           |
-| var    | `IMAGE`                 | image path (default `claude-dispatcher`)                             |
-| var    | `IMAGE_PLATFORMS`       | e.g. `linux/amd64 linux/arm64` (default `linux/amd64`)               |
-| var    | `CLAUDE_CODE_VERSION`   | Claude Code dist-tag or version to bake in (default `stable`)        |
-| var    | `CLAUDE_PLUGINS`        | Claude Code plugins to bake in, or `none` ([plugins](plugins.md))    |
-| var    | `CLAUDE_MARKETPLACES`   | marketplaces those plugins come from                                 |
-| var    | `PORTAINER_URL`         | e.g. `https://portainer.example.com`; without it there's no redeploy |
-| var    | `PORTAINER_STACK_ID`    | the stack's ID (from its URL); without it there's no redeploy        |
-| var    | `PORTAINER_ENDPOINT_ID` | Portainer environment ID (default `1`)                               |
-| secret | `REGISTRY_USERNAME`     | registry login; also used for Portainer's git pull of the stack      |
-| secret | `REGISTRY_PASSWORD`     | registry password or token                                           |
-| secret | `PORTAINER_API_KEY`     | Portainer access token                                               |
+| Kind   | Name                      | Purpose                                                              |
+| ------ | ------------------------- | -------------------------------------------------------------------- |
+| var    | `REGISTRY`                | registry host; without it nothing is built                           |
+| var    | `IMAGE`                   | image path (default `claude-dispatcher`)                             |
+| var    | `IMAGE_PLATFORMS`         | e.g. `linux/amd64 linux/arm64` (default `linux/amd64`)               |
+| var    | `CLAUDE_CODE_VERSION`     | Claude Code dist-tag or version to bake in (default `stable`)        |
+| var    | `CLAUDE_PLUGINS`          | Claude Code plugins to bake in, or `none` ([plugins](plugins.md))    |
+| var    | `CLAUDE_MARKETPLACES`     | marketplaces those plugins come from                                 |
+| var    | `DEPLOY_TARGET`           | `coolify` (default), `portainer` or `none`                           |
+| var    | `COOLIFY_URL`             | e.g. `https://coolify.example.com`; without it there's no redeploy   |
+| var    | `COOLIFY_SERVICE_UUID`    | the resource's UUID (from its URL); without it there's no redeploy   |
+| var    | `COOLIFY_HEALTH_URL`      | e.g. `https://dispatcher.example.com/healthz`; unset: don't wait     |
+| var    | `PORTAINER_URL`           | e.g. `https://portainer.example.com`; without it there's no redeploy |
+| var    | `PORTAINER_STACK_ID`      | the stack's ID (from its URL); without it there's no redeploy        |
+| var    | `PORTAINER_ENDPOINT_ID`   | Portainer environment ID (default `1`)                               |
+| secret | `REGISTRY_USERNAME`       | registry login; also used for Portainer's git pull of the stack      |
+| secret | `REGISTRY_PASSWORD`       | registry password or token                                           |
+| secret | `COOLIFY_TOKEN`           | Coolify API token (API access enabled in Coolify's settings)         |
+| secret | `CF_ACCESS_CLIENT_ID`     | optional Cloudflare Access service token for Coolify and the health  |
+| secret | `CF_ACCESS_CLIENT_SECRET` | URL, if they sit behind Access                                       |
+| secret | `PORTAINER_API_KEY`       | Portainer access token                                               |
 
 Tags pushed: `:<sha>` (a multi-arch index), `:<sha>-<arch>` per platform, plus
 `:latest` from `main` or `:<tag>` from a version tag. Layers are pushed with
@@ -198,10 +255,12 @@ Claude runs project commands without approval prompts
 (`CLAUDE_PERMISSION_MODE=bypassPermissions`), so the container is the sandbox:
 
 - **No Docker socket.** Don't mount it; it would give Claude control of the host.
-- A memory limit (`DISPATCHER_MEMORY_LIMIT`, default `4g`). The Portainer
-  stack joins the shared Caddy network (`SHARED_NETWORK`, default `caddy_net`),
-  so Claude can reach other containers on it; keep that network to services
-  that are safe to expose to it.
+- A memory limit (`DISPATCHER_MEMORY_LIMIT`, default `4g`), and on Coolify a
+  CPU limit and `no-new-privileges` too. Claude can reach every container on
+  the networks the dispatcher joins: the Gitea network on Coolify
+  (`GITEA_NETWORK`), the shared Caddy network on Portainer (`SHARED_NETWORK`,
+  default `caddy_net`). Keep those networks to services that are safe to
+  expose to it.
 - The Gitea token is never in Claude's environment or in `.git/config`; git
   gets it only while the dispatcher fetches or pushes.
 - Issue and comment text is treated as untrusted input to Claude, but a
@@ -211,8 +270,9 @@ Claude runs project commands without approval prompts
 ## Status
 
 `/healthz`, `/status` and the [dashboard](dashboard.md) are served on port
-8080 (see [operations.md](operations.md)). The Portainer compose file sets
-`STATUS_HOST=0.0.0.0` and publishes the port on
+8080 (see [operations.md](operations.md)). Both deploy compose files set
+`STATUS_HOST=0.0.0.0`. On Coolify, its proxy routes the resource's domain to
+port 8080 and nothing is published on the host. The Portainer compose file publishes the port on
 `${DISPATCHER_BIND_ADDR}:${DISPATCHER_HOST_PORT}` (default `127.0.0.1:8080`).
 A Caddy container on the shared network proxies to `claude-dispatcher:8080`; a
 Caddy on the host proxies to `127.0.0.1:8080`. Without a session, visitors

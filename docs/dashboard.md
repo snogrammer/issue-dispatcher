@@ -4,8 +4,8 @@ IssueDispatcher serves a web dashboard from the same server as `/healthz` and
 `/status` (`STATUS_PORT`, default `8080`). Open `http://<host>:8080/`.
 
 It binds to `STATUS_HOST`, `127.0.0.1` by default, so it's only reachable
-from inside the container. The Portainer compose file sets `STATUS_HOST=0.0.0.0`
-and publishes the port for Caddy (see [deploy.md](deploy.md#status)); for the
+from inside the container. The Coolify and Portainer compose files set
+`STATUS_HOST=0.0.0.0` for their proxies (see [deploy.md](deploy.md#status)); for the
 local compose stack, set it in `.env` and publish the port yourself. If it's reachable beyond localhost, put it
 behind a reverse proxy with HTTPS. The session cookie gets `Secure` when the
 proxy sends `X-Forwarded-Proto: https`.
@@ -51,6 +51,25 @@ curl -X POST -H "Authorization: Bearer $DASHBOARD_TOKEN" http://127.0.0.1:8080/a
 Writes made with the cookie must come from the dashboard's own origin. Ten
 failed logins in a minute lock logins for the rest of that minute. Every change
 is logged with `"dashboard": true`.
+
+## Analytics
+
+Off by default. Set `PLAUSIBLE_SCRIPT_URL` to a [Plausible](https://plausible.io/)
+tracking script, from plausible.io or a self-hosted Community Edition, and
+every dashboard page, the landing page included, loads it:
+
+- the per-site script from the site's installation settings, e.g.
+  `https://plausible.example.com/js/pa-XXXXXXXX.js`; or
+- the classic `https://plausible.example.com/js/script.js`, with
+  `PLAUSIBLE_DOMAIN` set to the site's domain in Plausible.
+
+The page's Content-Security-Policy then allows that script's origin for
+scripts and requests, and nothing else. Plausible's snippet normally includes
+an inline script, which the CSP forbids, so the dashboard sets up the same
+`window.plausible` queue from its own code instead. Paste only the script URL,
+not the snippet. The dashboard's pages are hash routes (`/#/runs`); to count
+them apart, turn on hash-based routing in the site's script settings (or use
+the classic `script.hash.js`).
 
 ## Actions
 

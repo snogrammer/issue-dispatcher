@@ -83,15 +83,20 @@ export async function handleApi(
   const log = deps.log ?? silentLogger;
 
   if (path === "/api/session" && method === "GET") {
-    const homeUrl = deps.config.dashboard.homeUrl ?? null;
+    const { homeUrl = null, plausibleScriptUrl, plausibleDomain } = deps.config.dashboard;
+    const analytics =
+      plausibleScriptUrl === undefined
+        ? null
+        : { src: plausibleScriptUrl, domain: plausibleDomain ?? null };
     // Logged out, say only what the landing page shows.
     if (!deps.auth.isAuthenticated(request)) {
-      return ok({ authenticated: false, loginEnabled: deps.auth.loginEnabled, homeUrl });
+      return ok({ authenticated: false, loginEnabled: deps.auth.loginEnabled, homeUrl, analytics });
     }
     return ok({
       authenticated: true,
       loginEnabled: true,
       homeUrl,
+      analytics,
       configEditable: deps.configManager !== undefined,
       version: deps.version,
       giteaUrl: deps.config.gitea.url,

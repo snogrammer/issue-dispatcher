@@ -9,6 +9,7 @@ import type { StateStore } from "./state/store.js";
  * - `GET /healthz`: 200 while the poll loop is alive, 503 once it hasn't
  *   finished a pass in 3× POLL_INTERVAL_S (a hung API call or a wedged loop).
  *   A container healthcheck can restart it; in-flight work resumes on start.
+ *   It also names the running commit, so a redeploy can wait for the new image.
  * - `GET /status`: what it's doing: watched repos (and skipped ones, with
  *   why), each held issue and its
  *   state, runs in progress, usage-limit and CI pauses, recent runs and cost.
@@ -22,6 +23,8 @@ export interface StatusDeps {
   store: StateStore;
   snapshot: () => EngineSnapshot;
   version: string;
+  /** The image's GIT_SHA; `/healthz` reports it so a redeploy can tell the new container answered. */
+  commit?: string;
   now?: () => Date;
 }
 
@@ -30,6 +33,8 @@ export interface Health {
   lastTickAt: string | null;
   /** Seconds since the last finished poll (or since start, before the first). */
   staleSeconds: number;
+  /** The running build's commit, or null when it wasn't stamped (local runs). */
+  commit: string | null;
 }
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -43,6 +48,7 @@ export function health(deps: StatusDeps, processStartedAt: Date): Health {
     ok: staleSeconds <= 3 * deps.config.pollIntervalS,
     lastTickAt: lastTickAt?.toISOString() ?? null,
     staleSeconds,
+    commit: deps.commit === undefined || deps.commit === "unknown" ? null : deps.commit,
   };
 }
 

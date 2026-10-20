@@ -151,6 +151,13 @@ export const configSchema = z
         token: z.string().min(16, "use at least 16 characters").optional(),
         /** Where the landing page's "back" link goes (a blog, GitHub profile, …). */
         homeUrl: z.url({ protocol: /^https?$/ }).optional(),
+        /**
+         * Plausible's tracking script (a self-hosted CE instance's or plausible.io's).
+         * Set, every dashboard page loads it and the CSP allows its origin.
+         */
+        plausibleScriptUrl: z.url({ protocol: /^https$/ }).optional(),
+        /** `data-domain` for the classic `script.js`; per-site `pa-*.js` scripts don't need it. */
+        plausibleDomain: z.string().min(1).optional(),
       })
       .prefault({}),
     /**

@@ -15,7 +15,9 @@ endpoints, alongside the [dashboard](dashboard.md):
 - `GET /healthz`: `200` while the poll loop is alive, `503` once it hasn't
   finished a pass in 3 × `POLL_INTERVAL_S`. Use it as the container
   healthcheck; a restart is safe, because in-flight work resumes from Gitea
-  labels and the saved Claude session.
+  labels and the saved Claude session. It also reports the running build's
+  `commit` (the image's `GIT_SHA`, `null` for unstamped builds), which the
+  Coolify redeploy waits on.
 - `GET /status`: JSON with the watched repos, the configured repos it
   isn't watching and why (`skippedRepos`), each held issue (state, branch,
   PRs, fix rounds), runs in progress and the session cap, pauses (usage limit,
@@ -42,12 +44,15 @@ wherever they appear, including inside error messages. The last 1,000 lines
 are also kept in memory for the dashboard's Logs page. Every change made from
 the dashboard is logged with `"dashboard": true`.
 
-Portainer's log viewer re-formats JSON lines and can show the same timestamp
-and message many times over. `docker logs <container>` shows the raw lines.
+Coolify's and Portainer's log viewers re-format JSON lines (Portainer's can
+show the same timestamp and message many times over). `docker logs <container>`
+on the host shows the raw lines.
 
 ## Error reporting
 
-Set `SENTRY_DSN` to send errors to Sentry; without it the SDK isn't loaded.
+Set `SENTRY_DSN` to send errors to Sentry, or to any server that accepts the
+Sentry SDK's events, such as self-hosted [Bugsink](https://www.bugsink.com/)
+(use the DSN of a Bugsink project). Without it the SDK isn't loaded.
 What gets sent:
 
 - every `error` and `fatal` log line, as an exception when it carries one
@@ -71,7 +76,8 @@ org or project:
 
 The same secret values the logs redact (and the DSN) are scrubbed from every
 event and breadcrumb, and request headers, bodies, cookies, query strings and
-user data are not collected. No performance tracing is sent.
+user data are not collected. No performance tracing is sent, which suits
+Bugsink: it stores errors only and drops other event types.
 
 ## The bot ignores an assigned issue
 

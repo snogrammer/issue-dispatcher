@@ -41,17 +41,27 @@ const SSE_HEARTBEAT_MS = 15_000;
 const PUBLIC_API = new Set(["/api/session", "/api/login", "/api/logout"]);
 
 /** Static files the landing page needs; the dashboard's own shell and code stay behind login. */
-const PUBLIC_FILES = new Set(["/landing.js", "/app.css"]);
+const PUBLIC_FILES = new Set(["/landing.js", "/analytics.js", "/app.css"]);
 const isPublicFile = (path: string) => PUBLIC_FILES.has(path) || path.startsWith("/brand/");
 
-/** Applied to every response; the CSP keeps the dashboard to its own files. */
+/** The CSP keeps the dashboard to its own files, plus `extra` origins for scripts and their requests. */
+const csp = (extra = "") =>
+  `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'${extra}; connect-src 'self'${extra}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
+
+/** Applied to every response. */
 const SECURITY_HEADERS: Record<string, string> = {
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
-  "content-security-policy":
-    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  "content-security-policy": csp(),
 };
+
+/** Headers for the dashboard's files: with analytics on, the CSP also allows Plausible's origin. */
+function fileHeaders(dashboard: Config["dashboard"]): Record<string, string> {
+  if (dashboard.plausibleScriptUrl === undefined) return SECURITY_HEADERS;
+  const origin = new URL(dashboard.plausibleScriptUrl).origin;
+  return { ...SECURITY_HEADERS, "content-security-policy": csp(` ${origin}`) };
+}
 
 /** Start the server; resolves once listening. `port` overrides the configured one (tests). */
 export async function startStatusServer(
@@ -60,6 +70,8 @@ export async function startStatusServer(
 ): Promise<StatusServer> {
   const processStartedAt = (deps.now ?? (() => new Date()))();
   const auth = new DashboardAuth(deps.config.dashboard.token);
+  // Not editable from the dashboard, so fixed for the server's lifetime.
+  const pageHeaders = fileHeaders(deps.config.dashboard);
   const apiDeps = { ...deps, auth };
 
   const server = createServer((request, response) => {
@@ -144,7 +156,7 @@ export async function startStatusServer(
       return;
     }
     response.writeHead(200, {
-      ...SECURITY_HEADERS,
+      ...pageHeaders,
       "content-type": file.type,
       "cache-control": "no-cache",
       // "/" is the landing page or the dashboard depending on the session cookie.

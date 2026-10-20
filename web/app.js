@@ -6,10 +6,12 @@
 // landing.html), so there's no logged-out state here: once the session ends,
 // reloading brings the landing page back.
 
+import { loadAnalytics } from "/analytics.js";
+
 const view = document.getElementById("view");
 const toastEl = document.getElementById("toast");
 
-/** @type {{ authenticated: boolean, homeUrl: string | null, configEditable: boolean, version: string, giteaUrl: string, botUsername: string, humanReviewer: string } | null} */
+/** @type {{ authenticated: boolean, homeUrl: string | null, analytics: { src: string, domain: string | null } | null, configEditable: boolean, version: string, giteaUrl: string, botUsername: string, humanReviewer: string } | null} */
 let session = null;
 /** Cleanup for the page being shown (timers, event streams). */
 let teardown = () => {};
@@ -140,6 +142,7 @@ async function loadSession() {
     session = null;
   }
   if (session && !session.authenticated) sessionEnded();
+  loadAnalytics(session?.analytics);
   renderSession();
 }
 

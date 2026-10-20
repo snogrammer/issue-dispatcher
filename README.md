@@ -94,6 +94,11 @@ To try it without touching a real instance, `scripts/dev-gitea.sh up` starts a
 throwaway local Gitea with a bot user and a demo repo, and runs the dispatcher
 against it.
 
+On a server, run the published image as a [Coolify](https://coolify.io/)
+resource (`docker-compose.coolify.yml`, the default) or a Portainer stack
+(`docker-compose.portainer.yml`); CI can redeploy either after each push to
+`main`. See [deployment](docs/deploy.md).
+
 ## Configuration
 
 Everything is set by environment variables (optionally plus a YAML file for

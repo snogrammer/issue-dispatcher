@@ -1,12 +1,17 @@
 name: Publish
 
 # Build and push the image after CI passes on main, and for version tags. On main,
-# also redeploy the Portainer stack. Pull requests never get here, so they never push.
+# also redeploy: the Coolify resource by default, or the Portainer stack with
+# DEPLOY_TARGET=portainer. Pull requests never get here, so they never push.
 #
 # Repository / organisation configuration (nothing deployment-specific is
 # hardcoded):
 #   secrets: REGISTRY_USERNAME, REGISTRY_PASSWORD
-#            PORTAINER_API_KEY            (only for the redeploy)
+#            COOLIFY_TOKEN                (only for a Coolify redeploy)
+#            CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
+#                                         (optional: Cloudflare Access service token
+#                                         for Coolify and the health URL)
+#            PORTAINER_API_KEY            (only for a Portainer redeploy)
 #   vars:    REGISTRY                     registry host, e.g. registry.example.com
 #            IMAGE                        image path, e.g. org/claude-dispatcher
 #                                         (default: claude-dispatcher)
@@ -14,6 +19,11 @@ name: Publish
 #                                         (default: linux/amd64). Non-native platforms
 #                                         build under QEMU emulation, so the runner
 #                                         must allow binfmt registration (privileged).
+#            DEPLOY_TARGET                coolify (default), portainer or none
+#            COOLIFY_URL                  e.g. https://coolify.example.com
+#            COOLIFY_SERVICE_UUID         the Coolify resource's UUID
+#            COOLIFY_HEALTH_URL           e.g. https://dispatcher.example.com/healthz;
+#                                         without it the redeploy doesn't wait
 #            PORTAINER_URL                e.g. https://portainer.example.com
 #            PORTAINER_STACK_ID, PORTAINER_ENDPOINT_ID (default 1)
 #            CLAUDE_CODE_VERSION          Claude Code dist-tag or version baked into
@@ -27,7 +37,8 @@ name: Publish
 #            CLAUDE_MARKETPLACES          marketplaces those plugins come from
 #                                         (default: the Dockerfile's)
 # Without REGISTRY nothing is built, and the `config` job warns about it. Without
-# PORTAINER_URL/PORTAINER_STACK_ID the image is pushed but no redeploy happens.
+# COOLIFY_URL/COOLIFY_SERVICE_UUID (or, for Portainer, PORTAINER_URL/
+# PORTAINER_STACK_ID) the image is pushed but no redeploy happens.
 #
 # Tags pushed: :<sha> (a multi-arch index) and :<sha>-<arch> per platform, plus
 # :latest from main, or :<tag> (e.g. :v1.2.3) from a version tag.
@@ -72,6 +83,9 @@ jobs:
       ALIAS_TAG: ${{ github.event_name == 'push' && github.ref_name || 'latest' }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET || 'coolify' }}
+      COOLIFY_URL: ${{ vars.COOLIFY_URL }}
+      COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
       PORTAINER_URL: ${{ vars.PORTAINER_URL }}
       PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
       PORTAINER_STACK_ID: ${{ vars.PORTAINER_STACK_ID }}
@@ -169,10 +183,21 @@ jobs:
       - name: Tag ${{ env.ALIAS_TAG }}
         run: regctl image copy "$REGISTRY/$IMAGE:$GIT_SHA" "$REGISTRY/$IMAGE:$ALIAS_TAG"
 
+      - name: Redeploy in Coolify
+        if: >-
+          steps.check.outputs.built != 'true' && github.event_name == 'workflow_run' &&
+          env.DEPLOY_TARGET == 'coolify' && env.COOLIFY_URL != '' && env.COOLIFY_SERVICE_UUID != ''
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          HEALTH_URL: ${{ vars.COOLIFY_HEALTH_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: bash deploy/coolify-redeploy.sh
+
       - name: Redeploy stack in Portainer
         if: >-
           steps.check.outputs.built != 'true' && github.event_name == 'workflow_run' &&
-          env.PORTAINER_URL != '' && env.PORTAINER_STACK_ID != ''
+          env.DEPLOY_TARGET == 'portainer' && env.PORTAINER_URL != '' && env.PORTAINER_STACK_ID != ''
         env:
           REGISTRY_REF_NAME: refs/heads/main # branch Portainer pulls the stack file from
         run: bash deploy/portainer-redeploy.sh

@@ -31,6 +31,8 @@ interface Options {
   /** `null` leaves DASHBOARD_TOKEN unset. */
   dashboardToken?: string | null;
   homeUrl?: string;
+  /** Extra env, e.g. the Plausible settings. */
+  env?: Record<string, string>;
 }
 
 function deps(options: Options = {}) {
@@ -39,6 +41,7 @@ function deps(options: Options = {}) {
     ...BASE_ENV,
     ...(token === null ? {} : { DASHBOARD_TOKEN: token }),
     ...(options.homeUrl === undefined ? {} : { DASHBOARD_HOME_URL: options.homeUrl }),
+    ...options.env,
   };
   const layers = readConfigLayers({ env });
   const config = buildConfig(layers, {});
@@ -82,7 +85,12 @@ describe("health", () => {
   it("is ok within 3× the poll interval of the last finished poll", () => {
     const { d, clock } = deps();
     clock.now = new Date(T0.getTime() + 180_000);
-    expect(health(d, T0)).toEqual({ ok: true, lastTickAt: T0.toISOString(), staleSeconds: 180 });
+    expect(health(d, T0)).toEqual({
+      ok: true,
+      lastTickAt: T0.toISOString(),
+      staleSeconds: 180,
+      commit: null,
+    });
     clock.now = new Date(T0.getTime() + 181_000);
     expect(health(d, T0).ok).toBe(false);
   });
@@ -94,6 +102,12 @@ describe("health", () => {
     value.startedAt = null;
     clock.now = new Date(T0.getTime() + 400_000);
     expect(health(d, T0).ok).toBe(false);
+  });
+
+  it("names the running commit, but not a build that wasn't stamped", () => {
+    const { d } = deps();
+    expect(health({ ...d, commit: "abc1234" }, T0).commit).toBe("abc1234");
+    expect(health({ ...d, commit: "unknown" }, T0).commit).toBeNull();
   });
 });
 
@@ -231,6 +245,39 @@ describe("status server", () => {
       expect((await call("/brand/favicon/favicon.svg")).code).toBe(200);
     });
 
+    it("allows Plausible's origin and hands its script to every visitor when analytics is on", async () => {
+      const { d } = deps({
+        env: {
+          PLAUSIBLE_SCRIPT_URL: "https://stats.example.com/js/script.js",
+          PLAUSIBLE_DOMAIN: "dispatcher.example.com",
+        },
+      });
+      server = await startStatusServer(d, 0);
+      const analytics = {
+        src: "https://stats.example.com/js/script.js",
+        domain: "dispatcher.example.com",
+      };
+      for (const auth of [false, true]) {
+        const page = await call("/", { auth });
+        const policy = page.headers.get("content-security-policy");
+        expect(policy).toContain("script-src 'self' https://stats.example.com;");
+        expect(policy).toContain("connect-src 'self' https://stats.example.com;");
+        expect((await call("/api/session", { auth })).body).toMatchObject({ analytics });
+      }
+      expect((await call("/analytics.js")).code).toBe(200);
+      // JSON responses keep the plain policy.
+      const json = await call("/healthz");
+      expect(json.headers.get("content-security-policy")).not.toContain("stats.example.com");
+    });
+
+    it("keeps the CSP to its own files when analytics is off", async () => {
+      const { d } = deps();
+      server = await startStatusServer(d, 0);
+      const policy = (await call("/")).headers.get("content-security-policy");
+      expect(policy).toContain("script-src 'self';");
+      expect(policy).toContain("connect-src 'self';");
+    });
+
     it("refuses paths that escape the served directories", async () => {
       expect(await staticFile("/../package.json")).toBeUndefined();
       expect(await staticFile("/%2e%2e/package.json")).toBeUndefined();
@@ -297,6 +344,7 @@ describe("status server", () => {
         authenticated: false,
         loginEnabled: true,
         homeUrl: "https://blog.example.com",
+        analytics: null,
       });
       expect((await call("/api/login")).body).toEqual({ error: "not found" });
     });
@@ -330,6 +378,7 @@ describe("status server", () => {
         authenticated: false,
         loginEnabled: false,
         homeUrl: null,
+        analytics: null,
       });
       expect(String((await call("/")).body.text)).toContain("landing.js");
       expect((await call("/status", { auth: true })).code).toBe(401);

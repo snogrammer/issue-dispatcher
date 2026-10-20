@@ -156,6 +156,7 @@ async function start(
           store: app.store,
           snapshot: () => app.engine.snapshot(),
           version: packageVersion(),
+          commit: run.commit,
           configManager,
           control: app.engine,
           logs,

@@ -1,0 +1,137 @@
+# claude-dispatcher as a Coolify "Docker Compose" resource, running the
+# published image. The default deployment; docker-compose.portainer.yml is the
+# Portainer alternative.
+#
+# Paste this file into a new "Docker Compose (Empty)" resource (a Coolify
+# service; deploy/coolify-redeploy.sh restarts it through the services API).
+# Coolify lists every ${VARIABLE} below in the resource's environment; see
+# coolify.env.example for a paste-able set and docs/deploy.md#coolify.
+#
+# Unlike the Portainer stack there's no container_name, no published port and
+# no shared Caddy network: Coolify's proxy routes to the dashboard. Set the
+# service's domain in the UI to  https://dispatcher.example.com:8080  (the
+# ":8080" is the container port to route to, not part of the public URL).
+#
+#   DISPATCHER_IMAGE            registry path, e.g. registry.example.com/org/claude-dispatcher
+#   DISPATCHER_TAG              tag to run (default: latest). The publish workflow's
+#                               redeploy pulls `latest`; pin `v1.2.3` or a commit
+#                               `<sha>` for a fixed version.
+#   DISPATCHER_DATA_PATH        host directory for state (SQLite)
+#   DISPATCHER_WORKSPACES_PATH  host directory for repo checkouts
+#   DISPATCHER_CPUS             CPU limit (default: 2)
+#   DISPATCHER_MEMORY_LIMIT     memory limit (default: 4g)
+#   GITEA_NETWORK               existing Docker network shared with Gitea
+#                               (default: gitea_internal). Create it once with
+#                               `docker network create gitea_internal`; it can stay
+#                               empty if Gitea runs elsewhere.
+#   GITEA_URL                   default http://gitea:3000, Gitea on that network
+#   TEST_POSTGRES_PASSWORD      password of the test Postgres (default: postgres)
+#
+# The dispatcher runs as uid 10001. If Docker creates the host directories
+# (owned by root), the entrypoint takes ownership of them before dropping
+# privileges, so no manual chown is needed. Both directories can be emptied:
+# state is rebuilt from Gitea labels and checkouts are re-cloned.
+#
+# The CPU, memory and privilege limits keep a busy run from starving whatever
+# else shares the host.
+#
+# Deliberately absent: the Docker socket. Claude runs commands in this
+# container with no approval prompts, so it must not be able to control the host.
+
+services:
+  dispatcher:
+    image: ${DISPATCHER_IMAGE:?set DISPATCHER_IMAGE}:${DISPATCHER_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Container paths, so state always lands on the bind mounts.
+      DATA_DIR: /data
+      WORKSPACE_DIR: /workspaces
+      # Listen beyond the container's loopback, so Coolify's proxy can reach
+      # /healthz, /status and the dashboard.
+      STATUS_HOST: 0.0.0.0
+      # The test services below, which Claude is told to run the tests against.
+      TEST_SERVICES: ${TEST_SERVICES-postgres://postgres:${TEST_POSTGRES_PASSWORD:-postgres}@postgres:5432,redis://redis:6379}
+      GITEA_URL: ${GITEA_URL:-http://gitea:3000}
+      GITEA_TOKEN: ${GITEA_TOKEN:?set GITEA_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME:?set BOT_USERNAME}
+      HUMAN_REVIEWER: ${HUMAN_REVIEWER:?set HUMAN_REVIEWER}
+      REPOS: ${REPOS:-}
+      ORGS: ${ORGS:-}
+      MERGE_STYLE: ${MERGE_STYLE:-}
+      # Claude Code auth: set one.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      POLL_INTERVAL_S: ${POLL_INTERVAL_S:-}
+      MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-}
+      CI_MAX_QUEUE: ${CI_MAX_QUEUE:-}
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
+      DASHBOARD_HOME_URL: ${DASHBOARD_HOME_URL:-}
+      PLAUSIBLE_SCRIPT_URL: ${PLAUSIBLE_SCRIPT_URL:-}
+      PLAUSIBLE_DOMAIN: ${PLAUSIBLE_DOMAIN:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+      SENTRY_SERVICE_NAME: ${SENTRY_SERVICE_NAME:-}
+      SENTRY_INSTANCE: ${SENTRY_INSTANCE:-}
+    volumes:
+      - ${DISPATCHER_DATA_PATH:?set DISPATCHER_DATA_PATH}:/data
+      - ${DISPATCHER_WORKSPACES_PATH:?set DISPATCHER_WORKSPACES_PATH}:/workspaces
+      # Language versions installed with asdf (see docs/deploy.md). A named
+      # volume, not a bind mount: Docker seeds it from the image's preloaded
+      # versions, and builds only work at the path they were built for.
+      - toolchains:/toolchains
+    cpus: ${DISPATCHER_CPUS:-2}
+    mem_limit: ${DISPATCHER_MEMORY_LIMIT:-4g}
+    # Lower CPU weight and first in line for the OOM killer, ahead of anything
+    # else on the host.
+    cpu_shares: 256
+    oom_score_adj: 500
+    # The entrypoint drops root with setpriv, which needs no new privileges.
+    security_opt:
+      - no-new-privileges:true
+    networks: [default, gitea, test-services]
+    # Time for SIGTERM handling to stop in-flight Claude runs cleanly.
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Throwaway services for repos whose tests need them, reachable from the
+  # dispatcher as postgres:5432 and redis:6379 (the hostnames CI service
+  # containers usually get). Data lives in memory and is lost on restart.
+  # Named dispatcher-* so they're easy to tell apart from (and exclude from
+  # backups of) real databases on the host; they're only on the private
+  # test-services network, where the aliases can't shadow anything else.
+  dispatcher-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:-postgres}
+    tmpfs: [/var/lib/postgresql/data]
+    mem_limit: 512m
+    networks:
+      test-services:
+        aliases: [postgres]
+
+  dispatcher-redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    mem_limit: 256m
+    networks:
+      test-services:
+        aliases: [redis]
+
+volumes:
+  toolchains: {}
+
+networks:
+  # Shared with Gitea (which joins it with the alias "gitea"), so the bot
+  # reaches it without leaving the host. It must already exist.
+  gitea:
+    name: ${GITEA_NETWORK:-gitea_internal}
+    external: true
+  # Private to this resource: the dispatcher and its test services.
+  test-services: {}

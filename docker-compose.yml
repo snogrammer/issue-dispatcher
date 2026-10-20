@@ -3,7 +3,8 @@
 #   cp .env.example .env   (fill it in; the same file `pnpm dev` reads)
 #   docker compose up -d --build   # also starts Postgres + Redis for tests
 #
-# For a Portainer deployment use docker-compose.portainer.yml instead.
+# To deploy, use docker-compose.coolify.yml (Coolify, the default) or
+# docker-compose.portainer.yml (Portainer) instead.
 #
 # Deliberately absent: the Docker socket. Claude runs commands in this
 # container with no approval prompts, so it must not be able to control the host.

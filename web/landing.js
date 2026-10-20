@@ -3,6 +3,8 @@
 // the session cookie is set, so logging in is just a reload, and the hash
 // (the page someone asked for) carries through.
 
+import { loadAnalytics } from "/analytics.js";
+
 const form = document.getElementById("login-form");
 const input = document.getElementById("login-token");
 const button = form.querySelector("button");
@@ -28,6 +30,7 @@ async function loadSession() {
     location.reload();
     return;
   }
+  loadAnalytics(session.analytics);
   if (session.homeUrl) {
     home.href = session.homeUrl;
     try {
