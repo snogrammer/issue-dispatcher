@@ -67,10 +67,13 @@ deploy webhook once `:latest` is up. See
 5. Set the `dispatcher` service's domain to `https://<host>:8080`. Coolify's
    proxy routes the domain to the container's port 8080; nothing is published
    on the host.
-6. Reaching Gitea: set `GITEA_URL` to its public URL, or, if Gitea runs in
-   Coolify on the same server, enable **Connect to Predefined Network** in the
-   resource's advanced settings and set `GITEA_URL` to the Gitea container's
-   name on that network (e.g. `http://<gitea-container>:3000`).
+6. Reaching Gitea: the compose file joins `gitea_internal`, the network of a
+   Gitea resource on the same Coolify server, so set `GITEA_URL` to the Gitea
+   container's name on it (`http://gitea:3000`). The network is declared
+   external, so it must exist before the first deploy. It does when Gitea is a
+   Coolify resource; otherwise run `docker network create gitea_internal` or
+   change the name in the compose file. If Gitea runs elsewhere, `GITEA_URL`
+   is its public URL, but the network must still exist.
 7. Copy the deploy webhook URL from the resource's **Webhooks** page and
    create an API token with deploy permission under _Keys & Tokens_; they go
    into the repository as `COOLIFY_DEPLOY_WEBHOOK` and `COOLIFY_TOKEN` (see
@@ -78,7 +81,7 @@ deploy webhook once `:latest` is up. See
 8. Deploy once by hand; CI deploys every later push to `main`.
 
 Coolify's compose validator rejects variables in volume sources and network
-names, so the compose file has literal host paths and no shared network:
+names, so the compose file has literal host paths and a literal network name:
 
 | Host path                           | Holds                                       |
 | ----------------------------------- | ------------------------------------------- |
@@ -110,10 +113,12 @@ If the registry is private, add its credentials to the Coolify server
 (`docker login` on the host) so it can pull the image.
 
 When editing the compose file, keep to what Coolify accepts: environment as a
-quoted list (`- 'KEY=...'`), no variables in volume sources or network names,
-no `container_name`, published ports, `network_mode` or external networks, no
-YAML anchors, merge keys or `x-` blocks, and no dollar-brace sequence in
-comments. A test (`test/coolify-compose.test.ts`) checks these.
+quoted list (`- 'KEY=...'`), no variables in volume sources or network names
+(an external network with a literal name is fine), no `container_name`,
+published ports or `network_mode`, no YAML anchors, merge keys or `x-` blocks,
+and no dollar-brace sequence in comments. A test
+(`test/coolify-compose.test.ts`) checks these, and that only the dispatcher is
+on the Gitea network.
 
 ## Portainer
 
@@ -286,11 +291,11 @@ Claude runs project commands without approval prompts
 - **No Docker socket.** Don't mount it; it would give Claude control of the host.
 - A memory limit (`DISPATCHER_MEMORY_LIMIT`, default `4g`), and on Coolify a
   CPU limit and `no-new-privileges` too. Claude can reach every container on
-  the networks the dispatcher joins: Coolify's predefined network if
-  _Connect to Predefined Network_ is on (every resource on it, so leave it off
-  when `GITEA_URL` can be the public URL), the shared Caddy network on
-  Portainer (`SHARED_NETWORK`, default `caddy_net`). Keep those networks to
-  services that are safe to expose to it.
+  the networks the dispatcher joins: Gitea's `gitea_internal` on Coolify
+  (Gitea and, usually, its database), the shared Caddy network on Portainer
+  (`SHARED_NETWORK`, default `caddy_net`). Keep those networks to services
+  that are safe to expose to it, and leave _Connect to Predefined Network_
+  off: it would add every resource on the server.
 - The Gitea token is never in Claude's environment or in `.git/config`; git
   gets it only while the dispatcher fetches or pushes.
 - Issue and comment text is treated as untrusted input to Claude, but a

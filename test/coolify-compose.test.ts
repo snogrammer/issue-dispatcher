@@ -14,6 +14,7 @@ interface Service {
   environment?: unknown;
   volumes?: unknown[];
   healthcheck?: unknown;
+  networks?: string[] | Record<string, unknown>;
   [key: string]: unknown;
 }
 interface Compose {
@@ -23,6 +24,12 @@ interface Compose {
 }
 const compose = parseYaml(text) as Compose;
 const services = Object.entries(compose.services);
+
+// Service networks come as a list of names or a map of name to options.
+function networksOf(service: Service): string[] {
+  if (Array.isArray(service.networks)) return service.networks;
+  return Object.keys(service.networks ?? {});
+}
 
 describe("docker-compose.coolify.yml", () => {
   it("has no variables in volume sources", () => {
@@ -34,11 +41,21 @@ describe("docker-compose.coolify.yml", () => {
     }
   });
 
-  it("has no variable, named or external networks", () => {
+  it("has no variables in network names", () => {
     for (const [name, network] of Object.entries(compose.networks ?? {})) {
       expect(name).not.toContain("${");
-      expect(network?.name, `network ${name}`).toBeUndefined();
-      expect(network?.external, `network ${name}`).toBeUndefined();
+      expect(network?.name ?? "", `network ${name}`).not.toContain("${");
+    }
+  });
+
+  // Gitea's resource network, declared by its literal name so GITEA_URL can be
+  // the Gitea container's name. Only the dispatcher joins it: the test
+  // services' postgres/redis aliases must stay off it (#63).
+  it("puts only the dispatcher on Gitea's network", () => {
+    expect(compose.networks?.gitea).toEqual({ name: "gitea_internal", external: true });
+    for (const [name, service] of services) {
+      const joins = networksOf(service).includes("gitea");
+      expect(joins, `${name} on gitea network`).toBe(name === "dispatcher");
     }
   });
 

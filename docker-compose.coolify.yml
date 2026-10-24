@@ -11,21 +11,22 @@
 # paste-able set.
 #
 # Coolify's compose validator rejects variables in volume sources and network
-# names, so the host paths below are literal, and there is no shared network:
-# if Gitea runs in Coolify too, enable "Connect to Predefined Network" in the
-# resource's advanced settings and point GITEA_URL at it. Coolify's proxy
-# routes to the dashboard: set the dispatcher service's domain in the UI to
-# https://dispatcher.example.com:8080 (the ":8080" is the container port to
-# route to, not part of the public URL). No container_name, published port,
-# network_mode, YAML anchors or extension blocks: Coolify manages or rejects
-# them, so repeated settings are written out.
+# names, so the host paths below and the Gitea network's name are literal. The
+# dispatcher joins gitea_internal, the Gitea resource's own network, so
+# GITEA_URL can be the container's name there (http://gitea:3000); the network
+# must already exist on the host. Coolify's proxy routes to the dashboard: set
+# the dispatcher service's domain in the UI to https://dispatcher.example.com:8080
+# (the ":8080" is the container port to route to, not part of the public URL).
+# No container_name, published port, network_mode, YAML anchors or extension
+# blocks: Coolify manages or rejects them, so repeated settings are written out.
 #
 #   DISPATCHER_IMAGE         registry path, e.g. registry.example.com/org/claude-dispatcher
 #   DISPATCHER_TAG           tag to run (default: latest, which CI's deploy pulls);
 #                            pin v1.2.3 or a commit sha for a fixed version
 #   DISPATCHER_CPUS          CPU limit (default: 2)
 #   DISPATCHER_MEMORY_LIMIT  memory limit (default: 4g)
-#   GITEA_URL                the Gitea instance, e.g. https://git.example.com
+#   GITEA_URL                the Gitea instance: http://gitea:3000 over
+#                            gitea_internal, or its public URL
 #   TEST_POSTGRES_PASSWORD   password of the test Postgres (default: postgres)
 #
 # State lives in /srv/claude-dispatcher/data (SQLite) and checkouts in
@@ -107,6 +108,7 @@ services:
       - no-new-privileges:true
     networks:
       - default
+      - gitea
       - test-services
     # Time for SIGTERM handling to stop in-flight Claude runs cleanly.
     stop_grace_period: 30s
@@ -161,5 +163,13 @@ volumes:
   toolchains: {}
 
 networks:
+  # Gitea's own resource network on Coolify, so GITEA_URL can be the Gitea
+  # container's name (http://gitea:3000). Only the dispatcher joins it: the
+  # test services' postgres/redis aliases must not land next to Gitea's real
+  # database. The name is literal because Coolify rejects a variable here; if
+  # your Gitea network is named differently, change this one line.
+  gitea:
+    name: gitea_internal
+    external: true
   # Private to this resource: the dispatcher and its test services.
   test-services: {}

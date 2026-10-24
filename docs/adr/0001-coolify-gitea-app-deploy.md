@@ -18,9 +18,8 @@ package CI builds and pushes to the Gitea registry.
 
 Coolify's compose validator also limits what that file may contain: no
 variables in volume sources or network names, environment as a quoted list,
-no `container_name`, published ports, `network_mode` or external networks,
-no YAML anchors, merge keys or `x-` blocks, and no dollar-brace sequence in
-comments.
+no `container_name`, published ports or `network_mode`, no YAML anchors,
+merge keys or `x-` blocks, and no dollar-brace sequence in comments.
 
 ## Decision
 
@@ -37,6 +36,17 @@ comments.
   Coolify's _Connect to Predefined Network_ option), a healthcheck on every
   service, and `pull_policy: always` so a deploy picks up the new `:latest`.
   `test/coolify-compose.test.ts` enforces the constraints.
+
+### Amendment (2026-10-24, #63)
+
+The "no shared Gitea network" point was wrong in practice. Coolify rejects a
+_variable_ in a network name, not an external network with a literal name, and
+_Connect to Predefined Network_ joins Coolify's own network rather than the
+Gitea resource's, so the dispatcher could not resolve `gitea` and restart-looped.
+The compose file now declares `gitea_internal` as a literal external network
+that only the `dispatcher` service joins, and `GITEA_URL` defaults to
+`http://gitea:3000` in the example environment. The network must exist on the
+host before the first deploy.
 
 ## Alternatives considered
 
