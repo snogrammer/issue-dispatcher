@@ -17,7 +17,7 @@ endpoints, alongside the [dashboard](dashboard.md):
   healthcheck; a restart is safe, because in-flight work resumes from Gitea
   labels and the saved Claude session. It also reports the running build's
   `commit` (the image's `GIT_SHA`, `null` for unstamped builds), which the
-  Coolify redeploy waits on.
+  Coolify deploy waits on.
 - `GET /status`: JSON with the watched repos, the configured repos it
   isn't watching and why (`skippedRepos`), each held issue (state, branch,
   PRs, fix rounds), runs in progress and the session cap, pauses (usage limit,

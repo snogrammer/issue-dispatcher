@@ -96,8 +96,8 @@ against it.
 
 On a server, run the published image as a [Coolify](https://coolify.io/)
 resource (`docker-compose.coolify.yml`, the default) or a Portainer stack
-(`docker-compose.portainer.yml`); CI can redeploy either after each push to
-`main`. See [deployment](docs/deploy.md).
+(`docker-compose.portainer.yml`); CI deploys either after each push to
+`main`, once the new image is pushed. See [deployment](docs/deploy.md).
 
 ## Configuration
 

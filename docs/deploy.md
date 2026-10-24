@@ -47,44 +47,73 @@ and run `scripts/dev-gitea.sh restart` for real runs.
 
 ## Coolify
 
-1. Create the network the dispatcher shares with Gitea, once per host:
-   `docker network create gitea_internal` (or another name, set as
-   `GITEA_NETWORK`). If Gitea runs in Coolify on the same host, add it to that
-   network with the alias `gitea` so `GITEA_URL` can stay at its default,
-   `http://gitea:3000`. If Gitea runs elsewhere, leave the network empty and
-   set `GITEA_URL` to its public URL.
-2. Add a **Docker Compose (Empty)** resource and paste
-   [`docker-compose.coolify.yml`](../docker-compose.coolify.yml) into it.
-3. Set its environment variables from
+Coolify deploys `docker-compose.coolify.yml` straight from this repository and
+runs the image CI publishes. CI, not Coolify, decides when: a push to `main`
+reaches Coolify before CI has built and pushed the new image, so Coolify's
+auto-deploy is off and the [publish workflow](#publishing) calls the resource's
+deploy webhook once `:latest` is up. See
+[ADR 0001](adr/0001-coolify-gitea-app-deploy.md).
+
+1. In Coolify, add the Gitea instance as a **Gitea App** source with access to
+   this repository.
+2. Create an application from the repository, branch `main`, with the
+   **Docker Compose** build pack and compose location
+   `/docker-compose.coolify.yml`.
+3. Turn **Auto Deploy** off in the resource's advanced settings.
+4. Set its environment variables from
    [`coolify.env.example`](../coolify.env.example) (the Developer view takes
    the whole file). Generate `TEST_POSTGRES_PASSWORD` with
    `openssl rand -hex 16`.
-4. Set the `dispatcher` service's domain to `https://<host>:8080`. Coolify's
+5. Set the `dispatcher` service's domain to `https://<host>:8080`. Coolify's
    proxy routes the domain to the container's port 8080; nothing is published
    on the host.
-5. Deploy. For redeploys from CI, note the resource's UUID (in its URL) and
-   create an API token under _Keys & Tokens_ (see [Publishing](#publishing)).
+6. Reaching Gitea: set `GITEA_URL` to its public URL, or, if Gitea runs in
+   Coolify on the same server, enable **Connect to Predefined Network** in the
+   resource's advanced settings and set `GITEA_URL` to the Gitea container's
+   name on that network (e.g. `http://<gitea-container>:3000`).
+7. Copy the deploy webhook URL from the resource's **Webhooks** page and
+   create an API token with deploy permission under _Keys & Tokens_; they go
+   into the repository as `COOLIFY_DEPLOY_WEBHOOK` and `COOLIFY_TOKEN` (see
+   [Publishing](#publishing)).
+8. Deploy once by hand; CI deploys every later push to `main`.
+
+Coolify's compose validator rejects variables in volume sources and network
+names, so the compose file has literal host paths and no shared network:
+
+| Host path                           | Holds                                       |
+| ----------------------------------- | ------------------------------------------- |
+| `/srv/claude-dispatcher/data`       | state (SQLite), rebuilt from labels if lost |
+| `/srv/claude-dispatcher/workspaces` | repo checkouts, re-cloned if lost           |
 
 Besides the dispatcher's own settings, the compose file needs:
 
-| Variable                     | Purpose                                                          |
-| ---------------------------- | ---------------------------------------------------------------- |
-| `DISPATCHER_IMAGE`           | registry path, e.g. `registry.example.com/org/claude-dispatcher` |
-| `DISPATCHER_TAG`             | tag to run (default `latest`; pin `v1.2.3` or a commit SHA)      |
-| `DISPATCHER_DATA_PATH`       | host directory for state (SQLite)                                |
-| `DISPATCHER_WORKSPACES_PATH` | host directory for repo checkouts                                |
-| `DISPATCHER_CPUS`            | CPU limit (default `2`)                                          |
-| `DISPATCHER_MEMORY_LIMIT`    | memory limit (default `4g`)                                      |
-| `GITEA_NETWORK`              | existing network shared with Gitea (default `gitea_internal`)    |
-| `TEST_POSTGRES_PASSWORD`     | password of the test Postgres                                    |
+| Variable                  | Purpose                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| `DISPATCHER_IMAGE`        | registry path, e.g. `registry.example.com/org/claude-dispatcher` |
+| `DISPATCHER_TAG`          | tag to run (default `latest`; pin `v1.2.3` or a commit SHA)      |
+| `DISPATCHER_CPUS`         | CPU limit (default `2`)                                          |
+| `DISPATCHER_MEMORY_LIMIT` | memory limit (default `4g`)                                      |
+| `TEST_POSTGRES_PASSWORD`  | password of the test Postgres                                    |
 
-The dispatcher also gets a low CPU weight, a raised OOM score and
+`GITEA_URL`, `GITEA_TOKEN`, `BOT_USERNAME`, `HUMAN_REVIEWER` and
+`DISPATCHER_IMAGE` are marked required, so Coolify won't deploy until they're
+set.
+
+Every service has a healthcheck, which Coolify shows as the resource's health:
+the dispatcher's `/healthz`, `pg_isready` for Postgres and `redis-cli ping` for
+Redis. The dispatcher also gets a low CPU weight, a raised OOM score and
 `no-new-privileges`, so a heavy run gives way to other services on the host.
 The [test services](#test-services) are named `dispatcher-postgres` and
 `dispatcher-redis`, reachable from the dispatcher as `postgres` and `redis`.
 
 If the registry is private, add its credentials to the Coolify server
 (`docker login` on the host) so it can pull the image.
+
+When editing the compose file, keep to what Coolify accepts: environment as a
+quoted list (`- 'KEY=...'`), no variables in volume sources or network names,
+no `container_name`, published ports, `network_mode` or external networks, no
+YAML anchors, merge keys or `x-` blocks, and no dollar-brace sequence in
+comments. A test (`test/coolify-compose.test.ts`) checks these.
 
 ## Portainer
 
@@ -133,11 +162,12 @@ _Pull and redeploy_, with _Re-pull image_ on).
 ## Publishing
 
 `.gitea/workflows/publish.yml` builds and pushes the image after CI passes on
-`main`, and for `v*` tags. After a push from `main` it also redeploys, picked
+`main`, and for `v*` tags. After a push from `main` it also deploys, picked
 by `DEPLOY_TARGET`:
 
-- `coolify` (the default): `deploy/coolify-redeploy.sh` restarts the resource
-  with freshly pulled images, then, if `COOLIFY_HEALTH_URL` is set, waits until
+- `coolify` (the default): `deploy/coolify-deploy.sh` calls the resource's
+  deploy webhook, so Coolify pulls the repo and the new `:latest` and recreates
+  the containers; then, if `DEPLOY_HEALTH_URL` is set, it waits until
   `/healthz` reports the pushed commit three times in a row.
 - `portainer`: `deploy/portainer-redeploy.sh` redeploys the git-backed stack
   and waits for the `claude-dispatcher` container to be healthy on the new
@@ -157,15 +187,14 @@ Configure it on the repository (or organisation):
 | var    | `CLAUDE_PLUGINS`          | Claude Code plugins to bake in, or `none` ([plugins](plugins.md))    |
 | var    | `CLAUDE_MARKETPLACES`     | marketplaces those plugins come from                                 |
 | var    | `DEPLOY_TARGET`           | `coolify` (default), `portainer` or `none`                           |
-| var    | `COOLIFY_URL`             | e.g. `https://coolify.example.com`; without it there's no redeploy   |
-| var    | `COOLIFY_SERVICE_UUID`    | the resource's UUID (from its URL); without it there's no redeploy   |
-| var    | `COOLIFY_HEALTH_URL`      | e.g. `https://dispatcher.example.com/healthz`; unset: don't wait     |
+| var    | `COOLIFY_DEPLOY_WEBHOOK`  | the resource's deploy webhook URL; without it there's no deploy      |
+| var    | `DEPLOY_HEALTH_URL`       | e.g. `https://dispatcher.example.com/healthz`; unset: don't wait     |
 | var    | `PORTAINER_URL`           | e.g. `https://portainer.example.com`; without it there's no redeploy |
 | var    | `PORTAINER_STACK_ID`      | the stack's ID (from its URL); without it there's no redeploy        |
 | var    | `PORTAINER_ENDPOINT_ID`   | Portainer environment ID (default `1`)                               |
 | secret | `REGISTRY_USERNAME`       | registry login; also used for Portainer's git pull of the stack      |
 | secret | `REGISTRY_PASSWORD`       | registry password or token                                           |
-| secret | `COOLIFY_TOKEN`           | Coolify API token (API access enabled in Coolify's settings)         |
+| secret | `COOLIFY_TOKEN`           | Coolify API token with deploy permission (API access enabled)        |
 | secret | `CF_ACCESS_CLIENT_ID`     | optional Cloudflare Access service token for Coolify and the health  |
 | secret | `CF_ACCESS_CLIENT_SECRET` | URL, if they sit behind Access                                       |
 | secret | `PORTAINER_API_KEY`       | Portainer access token                                               |
@@ -175,7 +204,7 @@ Tags pushed: `:<sha>` (a multi-arch index), `:<sha>-<arch>` per platform, plus
 `regctl` in 50 MiB chunks so a registry behind Cloudflare's 100 MB request cap
 accepts them.
 
-A redeploy restarts the dispatcher, possibly mid-run. That is safe: shutdown
+A deploy restarts the dispatcher, possibly mid-run. That is safe: shutdown
 stops in-flight Claude runs, and on startup the dispatcher rebuilds its state
 from issue labels and resumes them.
 
@@ -257,10 +286,11 @@ Claude runs project commands without approval prompts
 - **No Docker socket.** Don't mount it; it would give Claude control of the host.
 - A memory limit (`DISPATCHER_MEMORY_LIMIT`, default `4g`), and on Coolify a
   CPU limit and `no-new-privileges` too. Claude can reach every container on
-  the networks the dispatcher joins: the Gitea network on Coolify
-  (`GITEA_NETWORK`), the shared Caddy network on Portainer (`SHARED_NETWORK`,
-  default `caddy_net`). Keep those networks to services that are safe to
-  expose to it.
+  the networks the dispatcher joins: Coolify's predefined network if
+  _Connect to Predefined Network_ is on (every resource on it, so leave it off
+  when `GITEA_URL` can be the public URL), the shared Caddy network on
+  Portainer (`SHARED_NETWORK`, default `caddy_net`). Keep those networks to
+  services that are safe to expose to it.
 - The Gitea token is never in Claude's environment or in `.git/config`; git
   gets it only while the dispatcher fetches or pushes.
 - Issue and comment text is treated as untrusted input to Claude, but a

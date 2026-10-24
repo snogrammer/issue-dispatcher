@@ -1,3 +1,9 @@
 {
-  "printWidth": 100
+  "printWidth": 100,
+  "overrides": [
+    {
+      "files": "docker-compose.coolify.yml",
+      "options": { "singleQuote": true }
+    }
+  ]
 }
