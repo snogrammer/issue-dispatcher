@@ -6,6 +6,7 @@
 # Coolify deploys docker-compose.coolify.yml from this repo (a Gitea App
 # source) with auto-deploy off: a push to main would deploy before the image
 # exists, so CI calls the resource's deploy webhook once it has pushed.
+# The webhook is POST-only (a GET gets 405); uuid and force stay in its query string.
 #
 # Required env:
 #   COOLIFY_DEPLOY_WEBHOOK  the resource's Webhooks > Deploy Webhook URL,
@@ -32,7 +33,7 @@ fi
 # Trigger the deploy; fail loudly on non-2xx. Never echoes credentials or the
 # webhook URL (it names the resource).
 echo "🔄 Triggering the Coolify deploy webhook…"
-out=$(curl -sS -m 60 -w $'\n%{http_code}' ${access[@]+"${access[@]}"} \
+out=$(curl -sS -m 60 -X POST -w $'\n%{http_code}' ${access[@]+"${access[@]}"} \
       -H "Authorization: Bearer $COOLIFY_TOKEN" -H "Accept: application/json" \
       "$COOLIFY_DEPLOY_WEBHOOK")
 code="${out##*$'\n'}"

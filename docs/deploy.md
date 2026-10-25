@@ -170,7 +170,7 @@ _Pull and redeploy_, with _Re-pull image_ on).
 `main`, and for `v*` tags. After a push from `main` it also deploys, picked
 by `DEPLOY_TARGET`:
 
-- `coolify` (the default): `deploy/coolify-deploy.sh` calls the resource's
+- `coolify` (the default): `deploy/coolify-deploy.sh` POSTs to the resource's
   deploy webhook, so Coolify pulls the repo and the new `:latest` and recreates
   the containers; then, if `DEPLOY_HEALTH_URL` is set, it waits until
   `/healthz` reports the pushed commit three times in a row.

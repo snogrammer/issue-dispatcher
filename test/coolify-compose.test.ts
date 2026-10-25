@@ -105,3 +105,17 @@ describe("docker-compose.coolify.yml", () => {
     }
   });
 });
+
+describe("deploy/coolify-deploy.sh", () => {
+  const script = readFileSync(
+    path.resolve(import.meta.dirname, "../deploy/coolify-deploy.sh"),
+    "utf8",
+  );
+
+  // Coolify's deploy endpoint is POST-only; a GET gets 405.
+  it("sends the deploy webhook as a POST", () => {
+    const call = script.split("\n").find((line) => line.includes("curl -sS -m 60"));
+    expect(call).toContain("-X POST");
+    expect(script).not.toContain("-X GET");
+  });
+});
