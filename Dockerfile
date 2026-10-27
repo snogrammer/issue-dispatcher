@@ -117,8 +117,12 @@ ENV NODE_ENV=production \
 # the dispatcher as uid 10001.
 VOLUME ["/data", "/workspaces", "/toolchains"]
 
+# The image's Node by path: healthchecks run as root, whose asdf has no
+# default, so once a repo installs a Node into /toolchains the `node` shim
+# fails for root ("No version is set for command node") and the container
+# shows unhealthy for good (#66).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.STATUS_PORT || 8080) + '/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD /usr/local/bin/node -e "fetch('http://127.0.0.1:' + (process.env.STATUS_PORT || 8080) + '/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
 # Set by the publish workflow; declared last so it doesn't bust the layer cache.
 ARG GIT_SHA=unknown

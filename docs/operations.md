@@ -99,6 +99,22 @@ Repos are rediscovered every 5 minutes, and these are skipped:
 Each skip is logged once as `not watching repo`, and `repo no longer skipped`
 when it clears. One unusable repo never stops the bot watching the others.
 
+## Coolify shows the dispatcher unhealthy, and the domain says "no available server"
+
+Coolify's proxy only routes to healthy containers, so an unhealthy dispatcher
+means a 503 even while it keeps working (the logs look normal). Check why the
+healthcheck fails:
+
+```sh
+docker inspect <container> --format '{{json .State.Health}}' | jq '.Status,.Log[-3:]'
+```
+
+`/healthz` answering 503 means the poll loop stalled; see the logs. Exit code
+126 with `No version is set for command node` came from images before #66:
+their healthcheck ran the `node` asdf shim as root, which has no default
+version once a repo has installed a Node into the toolchains volume. Deploy a
+current image, which calls `/usr/local/bin/node` directly; the volume can stay.
+
 ## "Claude Code can't authenticate"
 
 Claude Code rejected its credentials: the token is missing, expired or revoked,

@@ -86,11 +86,13 @@ services:
       # versions, and builds only work at the path they were built for.
       - toolchains:/toolchains
     # The same check as the image's HEALTHCHECK: /healthz answers 503 once the
-    # poll loop stalls. Coolify shows it as the resource's health.
+    # poll loop stalls. Coolify shows it as the resource's health, and its proxy
+    # stops routing to an unhealthy container. Node by path, as in the image:
+    # the bare `node` asdf shim fails for root once a repo installs a Node.
     healthcheck:
       test:
         - CMD
-        - node
+        - /usr/local/bin/node
         - -e
         - "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
       interval: 30s
