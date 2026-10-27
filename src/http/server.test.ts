@@ -162,6 +162,64 @@ describe("status server", () => {
     return { cookie, origin: base() };
   }
 
+  describe("bugsink webhook", () => {
+    const SECRET = "w".repeat(40);
+    const BUGSINK = {
+      BUGSINK_URL: "https://bugsink.example.com",
+      BUGSINK_API_TOKEN: "bugsink-token",
+      BUGSINK_WEBHOOK_SECRET: SECRET,
+    };
+
+    async function withHook(env: Record<string, string> = BUGSINK) {
+      const { d } = deps({ env });
+      const received: unknown[] = [];
+      const bugsink = {
+        receive: (payload: unknown) => {
+          received.push(payload);
+          return "queued";
+        },
+      };
+      server = await startStatusServer({ ...d, bugsink }, 0);
+      return received;
+    }
+
+    it("accepts alerts at the secret path without a dashboard session", async () => {
+      const received = await withHook();
+      const result = await call(`/hooks/bugsink/${SECRET}`, {
+        method: "POST",
+        body: { id: "x", project: 1, alert_reason: "TEST" },
+      });
+      expect(result).toMatchObject({ code: 202, body: { received: "queued" } });
+      expect(received).toEqual([{ id: "x", project: 1, alert_reason: "TEST" }]);
+    });
+
+    it("answers 404 for a wrong secret or other hook paths, and receives nothing", async () => {
+      const received = await withHook();
+      for (const path of [`/hooks/bugsink/${SECRET}x`, "/hooks/bugsink/", "/hooks/other"]) {
+        expect(await call(path, { method: "POST", body: {}, auth: true })).toMatchObject({
+          code: 404,
+          body: { error: "not found" },
+        });
+      }
+      expect(received).toEqual([]);
+    });
+
+    it("answers 404 when intake isn't configured", async () => {
+      await withHook({});
+      expect((await call(`/hooks/bugsink/${SECRET}`, { method: "POST", body: {} })).code).toBe(404);
+    });
+
+    it("wants a JSON POST", async () => {
+      await withHook();
+      expect((await call(`/hooks/bugsink/${SECRET}`)).code).toBe(405);
+      const text = await call(`/hooks/bugsink/${SECRET}`, {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+      });
+      expect(text.code).toBe(415);
+    });
+  });
+
   it("serves /healthz with 200 while alive and 503 when the loop is stale", async () => {
     const { d, clock } = deps();
     server = await startStatusServer(d, 0);

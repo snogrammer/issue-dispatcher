@@ -24,6 +24,15 @@ is working on. To stop work, unassign the bot instead.
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `claude:question` | The one questions issue per worked issue: questions, follow-ups and decisions to confirm, for `HUMAN_REVIEWER` (see [workflow.md](workflow.md#questions)). Never picked up as work |
 
+## Bugsink (set by the dispatcher)
+
+Created on demand in the repos `BUGSINK_PROJECTS` maps to (see [bugsink.md](bugsink.md)).
+
+| Label            | Meaning                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `bugsink`        | Filed from a Bugsink error alert                                           |
+| `bugsink:frozen` | Regressed after its fixes; auto-fix is off until a human removes the label |
+
 ## Routing (set by you)
 
 | Label            | Meaning                                                                                                            |

@@ -89,6 +89,8 @@ export interface EngineDeps {
   newSessionId?: () => string;
   /** How often start() retries while another dispatcher holds the database. */
   leaseRetryMs?: number;
+  /** Extra work run at the end of every poll, e.g. resolving fixed Bugsink issues. */
+  sweeps?: readonly (() => Promise<void>)[];
 }
 
 /** What the engine is doing right now, for /status and /healthz. */
@@ -258,6 +260,14 @@ export class Engine {
         await this.lock.run(repo.fullName, () => this.reconcile(repo));
       } catch (error) {
         this.log.error("reconcile failed", { repo: repo.fullName, error });
+      }
+    }
+    for (const sweep of this.deps.sweeps ?? []) {
+      if (this.stopping) return;
+      try {
+        await sweep();
+      } catch (error) {
+        this.log.error("sweep failed", { error });
       }
     }
     this.lastTickAt = this.now();

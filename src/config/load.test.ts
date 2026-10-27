@@ -207,6 +207,54 @@ describe("loadConfig from env", () => {
   });
 });
 
+describe("bugsink config", () => {
+  it("is off by default and parses project pairs from env", () => {
+    expect(load(REQUIRED_ENV).bugsink).toEqual({
+      projects: {},
+      enabled: true,
+      maxRegressions: 1,
+    });
+    const config = load({
+      ...REQUIRED_ENV,
+      BUGSINK_URL: "https://bugsink.example.com/",
+      BUGSINK_PROJECTS: "5=VibeCo/claude-dispatcher, 4=VibeCo/moonext",
+      BUGSINK_MAX_REGRESSIONS: "2",
+    });
+    expect(config.bugsink).toMatchObject({
+      url: "https://bugsink.example.com",
+      projects: { "5": "VibeCo/claude-dispatcher", "4": "VibeCo/moonext" },
+      maxRegressions: 2,
+    });
+  });
+
+  it("rejects a malformed project pair and a short webhook secret", () => {
+    expect(loadError({ ...REQUIRED_ENV, BUGSINK_PROJECTS: "moonext" })).toContain(
+      "expected <bugsink project id>=owner/repo",
+    );
+    expect(loadError({ ...REQUIRED_ENV, BUGSINK_PROJECTS: "4=moonext" })).toContain(
+      "expected owner/repo",
+    );
+    expect(loadError({ ...REQUIRED_ENV, BUGSINK_WEBHOOK_SECRET: "short" })).toContain(
+      "BUGSINK_WEBHOOK_SECRET",
+    );
+  });
+
+  it("hides the token and webhook secret", () => {
+    const secret = "w".repeat(40);
+    const redacted = JSON.stringify(
+      redactConfig(
+        load({
+          ...REQUIRED_ENV,
+          BUGSINK_API_TOKEN: "bugsink-token-1",
+          BUGSINK_WEBHOOK_SECRET: secret,
+        }),
+      ),
+    );
+    expect(redacted).not.toContain("bugsink-token-1");
+    expect(redacted).not.toContain(secret);
+  });
+});
+
 describe("loadConfig with a YAML file", () => {
   const file = "/etc/dispatcher.yml";
 

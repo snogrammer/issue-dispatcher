@@ -63,6 +63,17 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "SENTRY_ENVIRONMENT", path: ["sentry", "environment"], kind: "string" },
   { name: "SENTRY_SERVICE_NAME", path: ["sentry", "serviceName"], kind: "string" },
   { name: "SENTRY_INSTANCE", path: ["sentry", "instance"], kind: "string" },
+  { name: "BUGSINK_URL", path: ["bugsink", "url"], kind: "string" },
+  { name: "BUGSINK_API_TOKEN", path: ["bugsink", "token"], kind: "string", secret: true },
+  {
+    name: "BUGSINK_WEBHOOK_SECRET",
+    path: ["bugsink", "webhookSecret"],
+    kind: "string",
+    secret: true,
+  },
+  { name: "BUGSINK_PROJECTS", path: ["bugsink", "projects"], kind: "list" },
+  { name: "BUGSINK_ENABLED", path: ["bugsink", "enabled"], kind: "bool" },
+  { name: "BUGSINK_MAX_REGRESSIONS", path: ["bugsink", "maxRegressions"], kind: "int" },
 ];
 
 /** Path to an optional YAML file merged underneath env values. */

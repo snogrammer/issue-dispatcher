@@ -23,7 +23,7 @@ export type EditableType = "int" | "number" | "bool" | "enum" | "list" | "json";
 export interface EditableKey {
   key: string;
   type: EditableType;
-  group: "Polling" | "Merging" | "Rate limits" | "Claude runs" | "Repos" | "Logging";
+  group: "Polling" | "Merging" | "Rate limits" | "Claude runs" | "Repos" | "Bugsink" | "Logging";
   help: string;
   options?: readonly string[];
   min?: number;
@@ -135,6 +135,19 @@ export const EDITABLE_KEYS: readonly EditableKey[] = [
     help: "owner/repo names to watch",
   },
   { key: "orgs", type: "list", group: "Repos", help: "Orgs whose repos are discovered" },
+  {
+    key: "bugsink.enabled",
+    type: "bool",
+    group: "Bugsink",
+    help: "File Gitea issues from Bugsink alerts; off, alerts are ignored",
+  },
+  {
+    key: "bugsink.maxRegressions",
+    type: "int",
+    group: "Bugsink",
+    min: 0,
+    help: "Regressions after a fix that get another attempt before the issue is frozen",
+  },
   { key: "logLevel", type: "enum", group: "Logging", options: LOG_LEVELS, help: "Log threshold" },
 ];
 

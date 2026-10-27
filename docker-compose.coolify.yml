@@ -78,6 +78,12 @@ services:
       - 'SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}'
       - 'SENTRY_SERVICE_NAME=${SENTRY_SERVICE_NAME:-}'
       - 'SENTRY_INSTANCE=${SENTRY_INSTANCE:-}'
+      - 'BUGSINK_URL=${BUGSINK_URL:-}'
+      - 'BUGSINK_API_TOKEN=${BUGSINK_API_TOKEN:-}'
+      - 'BUGSINK_WEBHOOK_SECRET=${BUGSINK_WEBHOOK_SECRET:-}'
+      - 'BUGSINK_PROJECTS=${BUGSINK_PROJECTS:-}'
+      - 'BUGSINK_ENABLED=${BUGSINK_ENABLED:-}'
+      - 'BUGSINK_MAX_REGRESSIONS=${BUGSINK_MAX_REGRESSIONS:-}'
     volumes:
       - /srv/claude-dispatcher/data:/data
       - /srv/claude-dispatcher/workspaces:/workspaces

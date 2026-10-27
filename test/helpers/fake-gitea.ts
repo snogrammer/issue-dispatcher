@@ -473,11 +473,13 @@ export class FakeGitea implements EngineGitea {
   editIssue(
     ref: RepoRef,
     index: number,
-    input: { title?: string; body?: string; state?: "open" | "closed" },
+    input: { title?: string; body?: string; state?: "open" | "closed"; assignees?: string[] },
   ): Promise<Issue> {
     const issue = this.issue(key(ref), index);
     this.calls.push(`editIssue ${key(ref)}#${String(index)}`);
-    Object.assign(issue, input);
+    const { assignees, ...rest } = input;
+    Object.assign(issue, rest);
+    if (assignees !== undefined) issue.assignees = assignees.map(user);
     return Promise.resolve(structuredClone(issue));
   }
 

@@ -125,6 +125,37 @@ export interface ModelCost extends CostTotals {
   model: string | null;
 }
 
+export type BugsinkLinkState = "open" | "resolved" | "frozen";
+
+/** A Bugsink issue and the Gitea issue filed for it (see bugsink/intake.ts). */
+export interface BugsinkLink {
+  bugsinkIssue: string;
+  project: number;
+  repo: string;
+  issue: number;
+  state: BugsinkLinkState;
+  /** Regressions since the last fix attempt was started by a human or by filing. */
+  regressions: number;
+  /** When the current fix attempt began; only work finished after it counts as the fix. */
+  attemptAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BugsinkLinkInput = Omit<BugsinkLink, "createdAt" | "updatedAt">;
+
+interface BugsinkLinkRow {
+  bugsink_issue: string;
+  project: number;
+  repo: string;
+  issue: number;
+  state: BugsinkLinkState;
+  regressions: number;
+  attempt_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export class SlotOccupiedError extends Error {
   override name = "SlotOccupiedError";
 
@@ -518,6 +549,54 @@ export class StateStore {
     return rows.map((row) => ({ model: row.model, ...toTotals(row) }));
   }
 
+  // --- Bugsink links --------------------------------------------------------
+
+  getBugsinkLink(bugsinkIssue: string): BugsinkLink | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM bugsink_link WHERE bugsink_issue = ?")
+      .get(bugsinkIssue) as BugsinkLinkRow | undefined;
+    return row === undefined ? undefined : toBugsinkLink(row);
+  }
+
+  bugsinkLinks(states: readonly BugsinkLinkState[]): BugsinkLink[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM bugsink_link WHERE state IN (${states.map(() => "?").join(", ")})
+         ORDER BY created_at`,
+      )
+      .all(...states) as BugsinkLinkRow[];
+    return rows.map(toBugsinkLink);
+  }
+
+  /** Insert or replace a link; `createdAt` is kept from the first save. */
+  saveBugsinkLink(link: BugsinkLinkInput): BugsinkLink {
+    const now = this.timestamp();
+    this.db
+      .prepare(
+        `INSERT INTO bugsink_link (bugsink_issue, project, repo, issue, state, regressions,
+           attempt_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (bugsink_issue) DO UPDATE SET project = excluded.project,
+           repo = excluded.repo, issue = excluded.issue, state = excluded.state,
+           regressions = excluded.regressions, attempt_at = excluded.attempt_at,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        link.bugsinkIssue,
+        link.project,
+        link.repo,
+        link.issue,
+        link.state,
+        link.regressions,
+        link.attemptAt,
+        now,
+        now,
+      );
+    const saved = this.getBugsinkLink(link.bugsinkIssue);
+    if (saved === undefined) throw new Error(`bugsink link ${link.bugsinkIssue} was not saved`);
+    return saved;
+  }
+
   // --- Settings -------------------------------------------------------------
 
   /** Config overrides saved from the dashboard (see config/overrides.ts). */
@@ -651,6 +730,20 @@ function toWork(row: WorkRow): IssueWork {
     lastSha: row.last_sha,
     headSince: row.head_since,
     rebaseFrom: row.rebase_from,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toBugsinkLink(row: BugsinkLinkRow): BugsinkLink {
+  return {
+    bugsinkIssue: row.bugsink_issue,
+    project: row.project,
+    repo: row.repo,
+    issue: row.issue,
+    state: row.state,
+    regressions: row.regressions,
+    attemptAt: row.attempt_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

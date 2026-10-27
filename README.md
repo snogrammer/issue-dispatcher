@@ -50,8 +50,8 @@ Gitea.
 
 More: [workflow](docs/workflow.md) · [configuration](docs/config.md) ·
 [labels](docs/labels.md) · [deployment](docs/deploy.md) ·
-[operations](docs/operations.md) · [plugins](docs/plugins.md) ·
-[brand](docs/brand.md)
+[operations](docs/operations.md) · [Bugsink auto-fix](docs/bugsink.md) ·
+[plugins](docs/plugins.md) · [brand](docs/brand.md)
 
 ## Requirements
 

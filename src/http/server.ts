@@ -1,11 +1,12 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import type { ConfigManager } from "../config/overrides.js";
-import type { Config } from "../config/schema.js";
+import { bugsinkConfigured, type Config } from "../config/schema.js";
 import type { LogBuffer, Logger } from "../log.js";
 import { health, status, type StatusDeps } from "../status.js";
-import { API_ENDPOINTS, handleApi, HttpError, type DashboardControl } from "./api.js";
+import { API_ENDPOINTS, handleApi, HttpError, readJson, type DashboardControl } from "./api.js";
 import { DashboardAuth } from "./auth.js";
 import { staticFile } from "./static.js";
 
@@ -19,7 +20,16 @@ import { staticFile } from "./static.js";
  * nothing else: `/healthz` (for the container healthcheck), the files the
  * landing page needs, and the API calls it makes to log in. Everything else
  * answers 401, or redirects to the landing page for files.
+ *
+ * The one exception is `/hooks/bugsink/<secret>`, where Bugsink posts alerts.
+ * Bugsink can't sign or add headers, so the secret path segment is the auth;
+ * any other path under /hooks answers 404, as if nothing were there.
  */
+
+/** Takes a Bugsink alert (see bugsink/intake.ts). */
+export interface BugsinkHook {
+  receive(payload: unknown): string;
+}
 
 export interface ServerDeps extends Omit<StatusDeps, "config"> {
   config: Config;
@@ -27,6 +37,7 @@ export interface ServerDeps extends Omit<StatusDeps, "config"> {
   control?: DashboardControl | undefined;
   logs?: LogBuffer | undefined;
   log?: Logger | undefined;
+  bugsink?: BugsinkHook | undefined;
 }
 
 export interface StatusServer {
@@ -121,6 +132,27 @@ export async function startStatusServer(
       return;
     }
 
+    if (path.startsWith("/hooks/")) {
+      const { bugsink } = deps.config;
+      const hook = deps.bugsink;
+      if (
+        hook === undefined ||
+        !bugsinkConfigured(bugsink) ||
+        !path.startsWith(BUGSINK_HOOK) ||
+        !sameSecret(path.slice(BUGSINK_HOOK.length), bugsink.webhookSecret)
+      ) {
+        sendJson(response, 404, { error: "not found" });
+        return;
+      }
+      if (method !== "POST") {
+        sendJson(response, 405, { error: "method not allowed" });
+        return;
+      }
+      const receipt = hook.receive(await readJson(request));
+      sendJson(response, receipt === "invalid" ? 400 : 202, { received: receipt });
+      return;
+    }
+
     if (path.startsWith("/api/")) {
       if (!authenticated && !PUBLIC_API.has(path)) {
         refuse();
@@ -184,6 +216,14 @@ export async function startStatusServer(
         server.closeAllConnections();
       }),
   };
+}
+
+const BUGSINK_HOOK = "/hooks/bugsink/";
+
+/** Constant-time compare; hashing first evens out the lengths. */
+function sameSecret(given: string, expected: string): boolean {
+  const digest = (value: string) => createHash("sha256").update(value).digest();
+  return timingSafeEqual(digest(given), digest(expected));
 }
 
 function sendJson(

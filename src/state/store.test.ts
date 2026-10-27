@@ -244,6 +244,34 @@ describe("instance lease", () => {
   });
 });
 
+describe("bugsink links", () => {
+  it("saves, updates and lists links by state, keeping createdAt", () => {
+    const clock = { now: new Date("2026-06-01T00:00:00Z") };
+    const store = StateStore.inMemory({ now: () => clock.now });
+    const link = {
+      bugsinkIssue: "uuid-1",
+      project: 4,
+      repo: "org/a",
+      issue: 7,
+      state: "open" as const,
+      regressions: 0,
+      attemptAt: "2026-06-01T00:00:00.000Z",
+    };
+    store.saveBugsinkLink(link);
+    clock.now = new Date("2026-06-02T00:00:00Z");
+    const saved = store.saveBugsinkLink({ ...link, state: "resolved", regressions: 1 });
+    expect(saved).toMatchObject({
+      state: "resolved",
+      regressions: 1,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+    });
+    expect(store.bugsinkLinks(["open", "frozen"])).toEqual([]);
+    expect(store.bugsinkLinks(["resolved"]).map((l) => l.bugsinkIssue)).toEqual(["uuid-1"]);
+    expect(store.getBugsinkLink("missing")).toBeUndefined();
+  });
+});
+
 describe("settings", () => {
   it("round-trips the dashboard config overrides", () => {
     const store = StateStore.inMemory();

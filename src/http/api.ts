@@ -235,7 +235,7 @@ function ok(body: unknown, headers?: Record<string, string>): Reply {
   return headers === undefined ? { code: 200, body } : { code: 200, body, headers };
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+export async function readJson(request: IncomingMessage): Promise<unknown> {
   const type = request.headers["content-type"] ?? "";
   if (!type.startsWith("application/json")) throw new HttpError(415, "send application/json");
   const chunks: Buffer[] = [];

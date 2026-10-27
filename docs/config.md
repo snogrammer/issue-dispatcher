@@ -6,7 +6,7 @@ The dispatcher reads environment variables and, optionally, a YAML file named by
 Everything is validated at startup; an invalid value stops the process with a
 message naming the key and the variable it came from.
 
-Secrets (`GITEA_TOKEN`, `DASHBOARD_TOKEN`, `SENTRY_DSN`) are accepted **only** from env. Putting them in
+Secrets (`GITEA_TOKEN`, `DASHBOARD_TOKEN`, `SENTRY_DSN`, `BUGSINK_API_TOKEN`, `BUGSINK_WEBHOOK_SECRET`) are accepted **only** from env. Putting them in
 the YAML file is an error. Empty variables count as unset.
 
 ## Environment variables
@@ -57,6 +57,12 @@ the YAML file is an error. Empty variables count as unset.
 | `SENTRY_ENVIRONMENT`            | `sentry.environment`           | `NODE_ENV`, else `production`      | Sentry environment, e.g. `prod`, `staging`                                                                                                                |
 | `SENTRY_SERVICE_NAME`           | `sentry.serviceName`           | `claude-dispatcher`                | `service` tag and release prefix (`<name>@<version>`), to tell services apart in a shared org                                                             |
 | `SENTRY_INSTANCE`               | `sentry.instance`              | hostname                           | Sentry server name; tells hosts or replicas apart (in Docker the hostname is the container ID)                                                            |
+| `BUGSINK_URL`                   | `bugsink.url`                  | unset                              | Bugsink instance for [alert intake](bugsink.md), e.g. `https://bugsink.example.com`                                                                       |
+| `BUGSINK_API_TOKEN`             | `bugsink.token`                | unset                              | Bugsink API token (resolve, mute, comment, read events). Secret: env only                                                                                 |
+| `BUGSINK_WEBHOOK_SECRET`        | `bugsink.webhookSecret`        | unset                              | Last segment of the alert URL `/hooks/bugsink/<secret>`; at least 32 characters. Secret: env only                                                         |
+| `BUGSINK_PROJECTS`              | `bugsink.projects`             | `{}`                               | Comma-separated `<bugsink project id>=owner/repo` pairs; alerts from other projects are ignored                                                           |
+| `BUGSINK_ENABLED`               | `bugsink.enabled`              | `true`                             | Global switch for intake; off, alerts are ignored. Editable from the dashboard                                                                            |
+| `BUGSINK_MAX_REGRESSIONS`       | `bugsink.maxRegressions`       | `1`                                | Regressions after a fix that reopen the issue before it is frozen. Editable from the dashboard                                                            |
 
 Claude Code authentication (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) is
 not part of the dispatcher's config; it is inherited by the `claude` process.

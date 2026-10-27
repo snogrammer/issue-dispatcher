@@ -200,7 +200,7 @@ export function setup(
     return ws;
   };
   let sessions = 0;
-  const make = (extra: { leaseRetryMs?: number } = {}) =>
+  const make = (extra: { leaseRetryMs?: number; sweeps?: (() => Promise<void>)[] } = {}) =>
     new Engine({
       ...extra,
       config,

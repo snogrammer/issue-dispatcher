@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+import { BugsinkClient } from "./bugsink/client.js";
+import { BugsinkDesk } from "./bugsink/intake.js";
 import { runClaude, runnerOptionsFromConfig } from "./claude/runner.js";
 import {
   buildConfig,
@@ -10,7 +12,7 @@ import {
   type ConfigLayers,
 } from "./config/load.js";
 import { ConfigManager, validateOverrides, type Overrides } from "./config/overrides.js";
-import type { Config } from "./config/schema.js";
+import { bugsinkConfigured, type Config } from "./config/schema.js";
 import { Engine } from "./engine/engine.js";
 import { prLifecycle } from "./engine/pr-lifecycle.js";
 import { ensureWritableDir } from "./fs.js";
@@ -33,6 +35,8 @@ import { GitError, Workspace } from "./workspace/git.js";
 export interface App {
   engine: Engine;
   store: StateStore;
+  /** Bugsink alert intake; undefined unless BUGSINK_URL, _API_TOKEN and _WEBHOOK_SECRET are set. */
+  bugsink: BugsinkDesk | undefined;
   stop(): Promise<void>;
 }
 
@@ -42,6 +46,15 @@ export function createApp(
   store: StateStore = StateStore.open(config.paths.dataDir),
 ): App {
   const gitea = new GiteaClient({ baseUrl: config.gitea.url, token: config.gitea.token });
+  const bugsink = bugsinkConfigured(config.bugsink)
+    ? new BugsinkDesk({
+        config,
+        gitea,
+        bugsink: new BugsinkClient({ baseUrl: config.bugsink.url, token: config.bugsink.token }),
+        store,
+        log,
+      })
+    : undefined;
   const engine = new Engine({
     config,
     gitea,
@@ -65,10 +78,12 @@ export function createApp(
       ),
     // Options are read per run so dashboard changes (timeout, budget) apply to the next one.
     runClaude: (request) => runClaude(runnerOptionsFromConfig(config), request),
+    sweeps: bugsink === undefined ? [] : [() => bugsink.sweep()],
   });
   return {
     engine,
     store,
+    bugsink,
     async stop() {
       await engine.stop();
       store.close();
@@ -83,6 +98,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
     base.gitea.token,
     base.dashboard.token,
     base.sentry.dsn,
+    base.bugsink.token,
+    base.bugsink.webhookSecret,
     env.CLAUDE_CODE_OAUTH_TOKEN,
     env.ANTHROPIC_API_KEY,
   ];
@@ -161,6 +178,7 @@ async function start(
           control: app.engine,
           logs,
           log,
+          bugsink: app.bugsink,
         });
   if (server) {
     log.info("status server and dashboard listening", {
@@ -197,6 +215,12 @@ async function start(
     // Don't let the open status server keep a failed process alive.
     await Promise.all([app.stop(), server?.close()]);
     throw error;
+  }
+  if (app.bugsink !== undefined) {
+    log.info("bugsink intake ready", {
+      enabled: config.bugsink.enabled,
+      projects: config.bugsink.projects,
+    });
   }
   log.info("watching repos", { repos: app.engine.watchedRepos().map((repo) => repo.fullName) });
   return app;

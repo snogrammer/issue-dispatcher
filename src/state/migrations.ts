@@ -78,4 +78,20 @@ export const MIGRATIONS: readonly string[] = [
     heartbeat_at TEXT NOT NULL
   );
   `,
+  `
+  -- Bugsink issues filed as Gitea issues (#69). attempt_at is when the
+  -- current fix attempt began: only work finished after it resolves Bugsink.
+  CREATE TABLE bugsink_link (
+    bugsink_issue TEXT PRIMARY KEY,
+    project       INTEGER NOT NULL,
+    repo          TEXT NOT NULL,
+    issue         INTEGER NOT NULL,
+    state         TEXT NOT NULL CHECK (state IN ('open', 'resolved', 'frozen')),
+    regressions   INTEGER NOT NULL DEFAULT 0,
+    attempt_at    TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  );
+  CREATE INDEX bugsink_link_by_state ON bugsink_link (state);
+  `,
 ];

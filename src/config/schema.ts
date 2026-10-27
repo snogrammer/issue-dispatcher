@@ -174,6 +174,37 @@ export const configSchema = z
         instance: z.string().min(1).optional(),
       })
       .prefault({}),
+    /**
+     * Bugsink alert intake (docs/bugsink.md): each new Bugsink issue becomes a
+     * Gitea issue assigned to the bot, resolved in Bugsink once the fix merges.
+     * Off unless the URL, token and webhook secret are all set.
+     */
+    bugsink: z
+      .strictObject({
+        url: z
+          .url({ protocol: /^https?$/ })
+          .transform((value) => value.replace(/\/+$/, ""))
+          .optional(),
+        token: z.string().min(1).optional(),
+        /** The last path segment of the webhook URL; Bugsink can't sign its posts. */
+        webhookSecret: z.string().min(32, "use at least 32 characters").optional(),
+        /** Bugsink project ID → Gitea repo. Env gives `id=owner/repo` pairs. */
+        projects: z
+          .preprocess(
+            (value) => (Array.isArray(value) ? Object.fromEntries(value.map(projectPair)) : value),
+            z
+              .record(z.string(), z.string().regex(REPO_PATTERN, "expected owner/repo"))
+              .refine((projects) => Object.keys(projects).every((id) => /^\d+$/.test(id)), {
+                message: "expected <bugsink project id>=owner/repo",
+              }),
+          )
+          .default({}),
+        /** Global switch: off, alerts are acknowledged and ignored. */
+        enabled: z.boolean().default(true),
+        /** Regressions after a bot fix that get another attempt before the issue is frozen. */
+        maxRegressions: z.int().min(0).default(1),
+      })
+      .prefault({}),
   })
   .refine((config) => config.repos.length + config.orgs.length > 0, {
     message: "set at least one repo (REPOS) or org (ORGS) to watch",
@@ -191,3 +222,19 @@ export const configSchema = z
   }));
 
 export type Config = z.infer<typeof configSchema>;
+
+/** `5=owner/repo` → ["5", "owner/repo"]; anything else fails the key check above. */
+function projectPair(item: unknown): [string, unknown] {
+  const text = String(item);
+  const at = text.indexOf("=");
+  return at === -1 ? [text, ""] : [text.slice(0, at).trim(), text.slice(at + 1).trim()];
+}
+
+/** Whether Bugsink intake has what it needs to run. */
+export function bugsinkConfigured(
+  bugsink: Config["bugsink"],
+): bugsink is Config["bugsink"] & { url: string; token: string; webhookSecret: string } {
+  return (
+    bugsink.url !== undefined && bugsink.token !== undefined && bugsink.webhookSecret !== undefined
+  );
+}
