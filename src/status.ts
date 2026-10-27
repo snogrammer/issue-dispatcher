@@ -12,7 +12,7 @@ import type { StateStore } from "./state/store.js";
  *   It also names the running commit, so a redeploy can wait for the new image.
  * - `GET /status`: what it's doing: watched repos (and skipped ones, with
  *   why), each held issue and its
- *   state, runs in progress, usage-limit and CI pauses, recent runs and cost.
+ *   state, runs in progress, usage-limit, auth and CI pauses, recent runs and cost.
  *
  * It exposes repo names, issue numbers and costs, never tokens. The
  * dashboard's overview page is built from the same `/status` document.
@@ -78,6 +78,8 @@ export function status(deps: StatusDeps, processStartedAt: Date): Record<string,
     sessions: { running: snapshot.running.length, max: deps.config.maxConcurrentSessions },
     pauses: {
       usageLimitUntil: governor.pausedUntil?.toISOString() ?? null,
+      /** "usage" or "auth" (Claude Code can't authenticate) while runs are paused. */
+      reason: governor.pausedUntil === null ? null : governor.pauseReason,
       pickupsUntil: governor.pickupPausedUntil?.toISOString() ?? null,
       backoffLevel: governor.backoffLevel,
       manual: governor.manualPause,

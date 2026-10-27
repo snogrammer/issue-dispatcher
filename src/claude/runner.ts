@@ -81,9 +81,13 @@ export interface RunRequest {
 
 const STDERR_TAIL_BYTES = 8 * 1024;
 const USAGE_LIMIT_TEXT = /(usage|rate) limit|rate limited/i;
-/** Messages seen from Claude Code 2.1.x for unusable credentials (incl. "Not logged in · Please run /login"). */
+/**
+ * Messages Claude Code gives for unusable credentials: "Not logged in · Please
+ * run /login" (2.1.x) and "Failed to authenticate. API Error: 401 OAuth access
+ * token is invalid." (2.x, e.g. a token that didn't survive a server move).
+ */
 const AUTH_FAILED_TEXT =
-  /not logged in|invalid api key|authentication[ _](failed|error)|oauth token (has )?(expired|revoked)|credit balance (is )?too low/i;
+  /not logged in|invalid api key|failed to authenticate|authentication[ _](failed|error)|api error: 401\b|(oauth )?access token (is )?(invalid|expired|revoked)|invalid bearer token|oauth token (has |is )?(expired|revoked|invalid)|credit balance (is )?too low/i;
 const SESSION_NOT_FOUND = /^No conversation found with session ID/;
 
 export function runnerOptionsFromConfig(config: Config): RunnerOptions {

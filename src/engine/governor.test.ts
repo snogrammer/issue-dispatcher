@@ -49,6 +49,27 @@ describe("hard pause", () => {
     expect(store.getGovernor().backoffLevel).toBe(0);
   });
 
+  it("records why it paused, and lifts only an auth pause on restart", () => {
+    const { governor, store, clock } = setup();
+    governor.observe({ kind: "auth_failed" });
+    expect(store.getGovernor()).toMatchObject({ pausedUntil: at(15), pauseReason: "auth" });
+
+    governor.liftAuthPause();
+    expect(store.getGovernor()).toMatchObject({
+      pausedUntil: null,
+      pauseReason: null,
+      backoffLevel: 1,
+    });
+
+    governor.observe({ kind: "rate_limited", rateLimit: { status: "rejected", resetsAt: at(60) } });
+    governor.liftAuthPause();
+    expect(store.getGovernor()).toMatchObject({ pausedUntil: at(60), pauseReason: "usage" });
+
+    clock.now = at(60);
+    expect(governor.isPaused()).toBe(false);
+    expect(store.getGovernor().pauseReason).toBeNull();
+  });
+
   it("treats a reset time in the past as unknown", () => {
     const { governor } = setup();
     const { pausedUntil } = governor.observe({

@@ -48,11 +48,15 @@ export interface WorkPatch {
   rebaseFrom?: string | null;
 }
 
+export type PauseReason = "usage" | "auth";
+
 export interface Governor {
   /** No run of any kind starts before this time (the usage limit was hit). */
   pausedUntil: Date | null;
   /** No new issue is picked up before this time (close to the limit). */
   pickupPausedUntil: Date | null;
+  /** Why runs are paused: a usage limit, or credentials Claude Code can't use. */
+  pauseReason: PauseReason | null;
   /** Consecutive rate limits without a known reset time; drives backoff. */
   backoffLevel: number;
   /** Set from the dashboard: no new issue is picked up until it's cleared. */
@@ -384,6 +388,7 @@ export class StateStore {
     return {
       pausedUntil: date("paused_until"),
       pickupPausedUntil: date("pickup_paused_until"),
+      pauseReason: pauseReason(values.get("pause_reason")),
       backoffLevel: Number(values.get("backoff_level") ?? 0),
       manualPause: values.get("manual_pause") === "1",
     };
@@ -400,6 +405,11 @@ export class StateStore {
         if (value === undefined) continue;
         if (value === null) this.db.prepare("DELETE FROM governor WHERE key = ?").run(key);
         else if (value instanceof Date) this.setGovernorValue(key, value.toISOString());
+      }
+      if (patch.pauseReason === null) {
+        this.db.prepare("DELETE FROM governor WHERE key = 'pause_reason'").run();
+      } else if (patch.pauseReason !== undefined) {
+        this.setGovernorValue("pause_reason", patch.pauseReason);
       }
       if (patch.backoffLevel !== undefined) {
         this.setGovernorValue("backoff_level", String(patch.backoffLevel));
@@ -606,6 +616,12 @@ export class StateStore {
   private timestamp(): string {
     return this.now().toISOString();
   }
+}
+
+/** The stored pause reason; pauses from before it was recorded have none. */
+function pauseReason(value: string | undefined): PauseReason | null {
+  if (value === "usage" || value === "auth") return value;
+  return null;
 }
 
 function migrate(db: Database.Database): void {

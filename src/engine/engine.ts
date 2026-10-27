@@ -199,6 +199,7 @@ export class Engine {
   async start(): Promise<void> {
     this.startedAt = this.now();
     if (!(await this.takeLease())) return;
+    this.governor.liftAuthPause();
     const tokenOwner = (await this.gitea.getCurrentUser()).login;
     if (tokenOwner !== this.config.gitea.botUsername) {
       this.log.warn(

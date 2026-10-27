@@ -582,6 +582,27 @@ describe("unusable Claude credentials", () => {
     await cycle(engine);
     expect(runner.requests.at(-1)).toMatchObject({ issue: 1, resumeSessionId: "session-1" });
   });
+  it("retries straight away after a restart, where new credentials take effect", async () => {
+    const { gitea, engine, store, runner, make } = setup();
+    gitea.addIssue(A, { number: 1 });
+    runner.script((request) => ({
+      kind: "auth_failed",
+      sessionId: request.sessionId ?? "",
+      stderrTail: "",
+      error: "Failed to authenticate. API Error: 401 OAuth access token is invalid.",
+    }));
+    await cycle(engine);
+    expect(store.getGovernor().pauseReason).toBe("auth");
+    expect(gitea.labelNames(A, 1)).toEqual(["claude:working"]);
+    await engine.stop();
+
+    const restarted = make();
+    await restarted.start();
+    await restarted.stop();
+    expect(store.getGovernor()).toMatchObject({ pausedUntil: null, pauseReason: null });
+    await cycle(make());
+    expect(runner.requests.at(-1)).toMatchObject({ issue: 1, resumeSessionId: "session-1" });
+  });
 });
 
 describe("CI backpressure", () => {

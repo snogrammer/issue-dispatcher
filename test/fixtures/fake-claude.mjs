@@ -125,6 +125,16 @@ function run() {
       });
       process.exitCode = 1;
       return;
+    case "auth-401":
+      // Shape from Claude Code 2.x when the OAuth token doesn't work (#66).
+      result({
+        is_error: true,
+        result: "Failed to authenticate. API Error: 401 OAuth access token is invalid.",
+        num_turns: 0,
+        total_cost_usd: 0,
+      });
+      process.exitCode = 1;
+      return;
     case "malformed":
       process.stdout.write('this is not json\n{"half":\n');
       process.stderr.write("boom: something broke\n");

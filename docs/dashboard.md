@@ -79,10 +79,10 @@ On the overview:
   issue is started. Work already in progress (runs, CI fixes, review rounds,
   merges) carries on. The pause is saved and survives restarts.
 - **Poll now**: start a reconcile pass without waiting for `POLL_INTERVAL_S`.
-- **Clear pause** (shown on a usage-limit banner): lift a usage-limit or
-  near-limit pause early and reset the backoff, e.g. after topping up credits
-  or fixing credentials. If the limit is still in force, the next run hits it
-  and pauses again.
+- **Clear pause** (shown on the usage-limit and "Claude Code can't
+  authenticate" banners): lift a usage-limit, near-limit or auth pause early
+  and reset the backoff, e.g. after topping up credits or fixing credentials.
+  If the problem is still there, the next run hits it and pauses again.
 
 ## Config
 

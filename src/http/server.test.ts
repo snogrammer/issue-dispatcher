@@ -448,6 +448,7 @@ describe("status server", () => {
       const { d, store, control } = deps({ dashboardToken: DASHBOARD_TOKEN });
       store.setGovernor({
         pausedUntil: new Date("2026-06-01T13:00:00Z"),
+        pauseReason: "auth",
         pickupPausedUntil: new Date("2026-06-01T14:00:00Z"),
         backoffLevel: 3,
       });
@@ -455,13 +456,16 @@ describe("status server", () => {
       const headers = { authorization: `Bearer ${DASHBOARD_TOKEN}` };
 
       await call("/api/actions/pause-pickups", { method: "POST", headers });
-      expect((await call("/status", { headers })).body).toMatchObject({ pauses: { manual: true } });
+      expect((await call("/status", { headers })).body).toMatchObject({
+        pauses: { manual: true, reason: "auth" },
+      });
       await call("/api/actions/resume-pickups", { method: "POST", headers });
       expect(store.getGovernor().manualPause).toBe(false);
 
       await call("/api/actions/clear-usage-pause", { method: "POST", headers });
       expect(store.getGovernor()).toEqual({
         pausedUntil: null,
+        pauseReason: null,
         pickupPausedUntil: null,
         backoffLevel: 0,
         manualPause: false,
