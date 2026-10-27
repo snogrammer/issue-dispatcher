@@ -170,8 +170,11 @@ jobs:
           rm -rf /tmp/oci-image
           # Single-platform images carry no platform in a new index entry, so set
           # it explicitly; otherwise pulls can't pick the right architecture.
-          regctl index create "$REGISTRY/$IMAGE:$GIT_SHA-index"
-          for entry in "${pushed[@]}"; do
+          # The index is created with its first entry: Gitea's registry (28.x)
+          # rejects an empty index as MANIFEST_INVALID (#66).
+          first="${pushed[0]}"
+          regctl index create "$REGISTRY/$IMAGE:$GIT_SHA-index" --ref "${first#*=}" --desc-platform "${first%%=*}"
+          for entry in "${pushed[@]:1}"; do
             regctl index add "$REGISTRY/$IMAGE:$GIT_SHA-index" --ref "${entry#*=}" --desc-platform "${entry%%=*}"
           done
           # Tag :<sha> last: the "Already built?" check treats it as "done".

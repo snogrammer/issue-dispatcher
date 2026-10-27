@@ -104,6 +104,20 @@ describe("docker-compose.coolify.yml", () => {
       expect(service.healthcheck, `${name}.healthcheck`).toBeDefined();
     }
   });
+
+  // Healthchecks run as root, where the asdf `node` shim has no version once a
+  // repo has installed a Node: the container goes unhealthy and the proxy 503s (#66).
+  it("runs the dispatcher healthcheck with the image's Node, not the asdf shim", () => {
+    const { test } = compose.services.dispatcher?.healthcheck as { test: string[] };
+    expect(test.slice(0, 2)).toEqual(["CMD", "/usr/local/bin/node"]);
+  });
+});
+
+describe("Dockerfile", () => {
+  it("runs the healthcheck with the image's Node, not the asdf shim", () => {
+    const dockerfile = readFileSync(path.resolve(import.meta.dirname, "../Dockerfile"), "utf8");
+    expect(dockerfile).toMatch(/^HEALTHCHECK [^\n]*\\\n\s+CMD \/usr\/local\/bin\/node /m);
+  });
 });
 
 describe("deploy/coolify-deploy.sh", () => {
