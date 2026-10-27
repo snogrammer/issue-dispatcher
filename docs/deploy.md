@@ -140,8 +140,9 @@ compose file needs:
 | `DISPATCHER_HOST_PORT`       | host port for the dashboard (default `8080`)                     |
 
 Language versions live in a named volume (`toolchains`), not a bind mount:
-Docker seeds a new named volume from the image's preloaded versions, and
-compiled Python and Ruby only work at the path they were built for.
+Docker seeds a new named volume from the image's preloaded versions (if it
+has any), and compiled Python and Ruby only work at the path they were built
+for.
 
 The dispatcher runs as uid 10001. The container starts as root only long
 enough to take ownership of `/data`, `/workspaces` and `/toolchains` (so host directories
@@ -236,11 +237,14 @@ run whose checks failed or couldn't run is blocked, not pushed (see
 [workflow.md](workflow.md)).
 
 - **Node**: the image's Node 22, with pnpm/npm/yarn through corepack.
-- **Python and Ruby**: installed with [asdf](https://asdf-vm.com) at build
-  time. `ASDF_PRELOAD` picks the versions (default
-  `python latest:3.12 ruby latest:3.3`; `latest:<prefix>` means the newest
-  matching release). These are the defaults for repos that pin nothing. `uv`
-  is included too.
+- **Python and Ruby**: installed with [asdf](https://asdf-vm.com).
+  `ASDF_PRELOAD` picks versions to compile in at build time (`latest:<prefix>`
+  means the newest matching release). `docker compose build` defaults to
+  `python latest:3.12 ruby latest:3.3`; images from the publish workflow
+  preload **none**, unless the `ASDF_PRELOAD` repo variable is set, because
+  compiling them took most of each publish. Repos that pin nothing use the
+  preloaded versions, or else the newest Python and Ruby already in the
+  toolchains volume. `uv` is included too.
 - **Per-repo versions**: before each run the dispatcher reads the checkout's
   `.tool-versions`, `.python-version`, `.ruby-version`, `.node-version` and
   `.nvmrc`, installs those versions with asdf (any asdf plugin works in
@@ -259,8 +263,11 @@ run whose checks failed or couldn't run is blocked, not pushed (see
   `DISPATCHER_IMAGE` for Portainer).
 
 Preloading costs image size (about 1 GB) and build time (a few minutes per
-version), once per build. For published images, set the `ASDF_PRELOAD` repo
-variable (see `.gitea/workflows/publish.yml`).
+version), once per build. An existing deployment loses nothing without it:
+the toolchains volume keeps every version installed so far across image
+upgrades. A brand-new one compiles each pinned Python or Ruby once, on the
+first run that needs it. To preload in published images anyway, set the
+`ASDF_PRELOAD` repo variable (see `.gitea/workflows/publish.yml`).
 
 ## Test services
 

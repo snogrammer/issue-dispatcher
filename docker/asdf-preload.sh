@@ -2,8 +2,11 @@
 # Install language versions with asdf at image build time and make them the
 # defaults (in ~/.tool-versions). Arguments are "tool version" pairs, e.g.
 #   asdf-preload python latest:3.12 ruby latest:3.3
-# Node stays on the image's own (system) Node unless a pair names nodejs.
+# "none" installs nothing (the plugins are still added). Node stays on the
+# image's own (system) Node unless a pair names nodejs.
 set -eu
+
+if [ "${1:-}" = none ]; then shift; fi
 
 asdf plugin add nodejs
 asdf plugin add python

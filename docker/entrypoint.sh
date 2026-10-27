@@ -6,6 +6,19 @@
 # user (e.g. `user: 10001` in compose), it just runs the command.
 set -eu
 
+# Repos that pin no version use the default in ~/.tool-versions. An image
+# built without preloaded toolchains (ASDF_PRELOAD=none, the published
+# default) has none, so default to the newest Python and Ruby already in the
+# toolchains volume.
+default_toolchains() {
+  file="$HOME/.tool-versions"
+  for tool in python ruby; do
+    if grep -q "^$tool " "$file" 2>/dev/null; then continue; fi
+    latest=$(ls "${ASDF_DATA_DIR:-/toolchains}/installs/$tool" 2>/dev/null | sort -V | tail -n 1)
+    if [ -n "$latest" ]; then printf '%s %s\n' "$tool" "$latest" >>"$file"; fi
+  done
+}
+
 if [ "$(id -u)" = 0 ]; then
   for dir in "${DATA_DIR:-/data}" "${WORKSPACE_DIR:-/workspaces}" "${ASDF_DATA_DIR:-/toolchains}"; do
     mkdir -p "$dir"
@@ -17,7 +30,10 @@ if [ "$(id -u)" = 0 ]; then
   done
   # Docker set HOME for root; Claude Code and git keep their state under it.
   export HOME=/home/dispatcher USER=dispatcher LOGNAME=dispatcher
+  default_toolchains
+  if [ -f "$HOME/.tool-versions" ]; then chown 10001:10001 "$HOME/.tool-versions"; fi
   exec setpriv --reuid=10001 --regid=10001 --init-groups -- "$@"
 fi
 
+if [ -n "${HOME:-}" ] && [ -w "$HOME" ]; then default_toolchains; fi
 exec "$@"

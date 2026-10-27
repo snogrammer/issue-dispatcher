@@ -32,7 +32,9 @@ name: Publish
 #                                         the image (default: stable)
 #            ASDF_PRELOAD                 language versions baked into the image, e.g.
 #                                         "python latest:3.12 ruby latest:3.3"
-#                                         (default: the Dockerfile's)
+#                                         (default: none; compiling them took most of
+#                                         the build, and the toolchains volume keeps
+#                                         versions across upgrades anyway)
 #            CLAUDE_PLUGINS               Claude Code plugins baked into the image
 #                                         (plugin@marketplace, space-separated, or
 #                                         "none"; default: the Dockerfile's)
@@ -52,11 +54,13 @@ on:
   push:
     tags: ["v*"]
 
-# Gitea can fire workflow_run more than once for one CI run (once per job).
-# Runs for one commit are serialised, and a run finds `:<sha>` already pushed
-# and exits early, so duplicates are no-ops.
+# Gitea fires workflow_run once per CI run, and merges close together start
+# several runs for the same main head. One group for every run (Gitea doesn't
+# resolve event fields in a run-level group reliably) queues them, and a
+# queued run finds `:<sha>` already pushed and exits in seconds, instead of
+# each holding a shared runner for a full build.
 concurrency:
-  group: publish-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: publish
   cancel-in-progress: false
 
 jobs:
@@ -72,12 +76,14 @@ jobs:
       vars.REGISTRY != '' &&
       (github.event_name == 'push' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    # A normal publish takes about 3 minutes; never hold a shared runner for long.
+    timeout-minutes: 15
     env:
       REGISTRY: ${{ vars.REGISTRY }}
       IMAGE: ${{ vars.IMAGE || 'claude-dispatcher' }}
       IMAGE_PLATFORMS: ${{ vars.IMAGE_PLATFORMS || 'linux/amd64' }}
       CLAUDE_CODE_VERSION: ${{ vars.CLAUDE_CODE_VERSION || 'stable' }}
-      ASDF_PRELOAD: ${{ vars.ASDF_PRELOAD }}
+      ASDF_PRELOAD: ${{ vars.ASDF_PRELOAD || 'none' }}
       CLAUDE_PLUGINS: ${{ vars.CLAUDE_PLUGINS }}
       CLAUDE_MARKETPLACES: ${{ vars.CLAUDE_MARKETPLACES }}
       GIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}

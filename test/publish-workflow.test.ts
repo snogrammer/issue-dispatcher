@@ -13,8 +13,14 @@ interface Step {
   name?: string;
   run?: string;
 }
+interface Job {
+  steps?: Step[];
+  env?: Record<string, string>;
+  "timeout-minutes"?: number;
+}
 interface Workflow {
-  jobs: Record<string, { steps?: Step[] }>;
+  concurrency?: { group?: string; "cancel-in-progress"?: boolean };
+  jobs: Record<string, Job>;
 }
 const workflow = parseYaml(readFileSync(file, "utf8")) as Workflow;
 const build = Object.values(workflow.jobs)
@@ -23,6 +29,21 @@ const build = Object.values(workflow.jobs)
 const script = build?.run ?? "";
 
 describe("publish.yml", () => {
+  // Runners are shared with other projects (#66): publishes queue one at a
+  // time, can't run long, and don't compile toolchains unless asked to.
+  it("runs one publish at a time, whatever the event", () => {
+    expect(workflow.concurrency).toEqual({ group: "publish", "cancel-in-progress": false });
+  });
+
+  it("gives up on a publish that runs long", () => {
+    const timeout = workflow.jobs.publish?.["timeout-minutes"] ?? Infinity;
+    expect(timeout).toBeLessThanOrEqual(15);
+  });
+
+  it("preloads no toolchains unless ASDF_PRELOAD is set", () => {
+    expect(workflow.jobs.publish?.env?.ASDF_PRELOAD).toBe("${{ vars.ASDF_PRELOAD || 'none' }}");
+  });
+
   it("has the build step", () => {
     expect(script).not.toBe("");
   });
