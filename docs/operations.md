@@ -20,8 +20,8 @@ endpoints, alongside the [dashboard](dashboard.md):
   Coolify deploy waits on.
 - `GET /status`: JSON with the watched repos, the configured repos it
   isn't watching and why (`skippedRepos`), each held issue (state, branch,
-  PRs, fix rounds), runs in progress and the session cap, pauses (usage limit,
-  pickups, CI backpressure), cost totals for the last 24 hours, 7 days and all
+  PRs, fix rounds), runs in progress and the session cap, pauses (usage limit or
+  failed auth, told apart by `pauses.reason`; pickups; CI backpressure), cost totals for the last 24 hours, 7 days and all
   time (per repo), and the 20 most recent runs with model, effort, outcome and
   cost.
 
@@ -98,6 +98,27 @@ Repos are rediscovered every 5 minutes, and these are skipped:
 
 Each skip is logged once as `not watching repo`, and `repo no longer skipped`
 when it clears. One unusable repo never stops the bot watching the others.
+
+## "Claude Code can't authenticate"
+
+Claude Code rejected its credentials: the token is missing, expired or revoked,
+or it didn't survive a move to a new server (`Failed to authenticate. API
+Error: 401 OAuth access token is invalid.`). That is never the issue's fault,
+so the dispatcher doesn't block it. It pauses **all** runs, keeps the issue's
+state and session, comments `Paused: Claude Code can't authenticate…` on it
+once, and shows a "Claude Code can't authenticate" banner on the dashboard. The
+pause backs off like a usage limit with no reset time (`RATE_LIMIT_BACKOFF_*`).
+
+To fix it, run `claude setup-token` somewhere you can log in, put the new token
+in `CLAUDE_CODE_OAUTH_TOKEN` (on Coolify: the resource's environment), and
+redeploy. A restart lifts an auth pause straight away, so the paused issue
+resumes on the first poll instead of waiting out the backoff. **Clear pause**
+on the dashboard retries without a restart.
+
+Before #66, the `401 OAuth access token is invalid` wording wasn't recognised,
+and the issue was blocked with `The implement run failed (error): Failed to
+authenticate…`. Once the token works, remove `claude:blocked` from those issues
+to start them over.
 
 ## An issue is blocked: "what comes after it failed"
 

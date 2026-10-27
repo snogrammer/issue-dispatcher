@@ -389,11 +389,18 @@ async function overviewPage(gen) {
       h(
         "div",
         { class: "banner warn" },
-        h("strong", {}, "Usage limit reached."),
+        h(
+          "strong",
+          {},
+          pauses.reason === "auth" ? "Claude Code can't authenticate." : "Usage limit reached.",
+        ),
         h(
           "span",
           { class: "grow" },
           `No runs start until ${when(pauses.usageLimitUntil)} (in ${until(pauses.usageLimitUntil)}). Backoff level ${pauses.backoffLevel}.`,
+          pauses.reason === "auth"
+            ? " Fix CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY and redeploy (that lifts the pause), or clear it to retry now."
+            : null,
         ),
         clear,
       ),

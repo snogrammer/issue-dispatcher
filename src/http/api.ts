@@ -212,7 +212,12 @@ function runAction(deps: ApiDeps, action: (typeof ACTIONS)[number]): void {
       deps.control?.pollNow();
       return;
     case "clear-usage-pause":
-      deps.store.setGovernor({ pausedUntil: null, pickupPausedUntil: null, backoffLevel: 0 });
+      deps.store.setGovernor({
+        pausedUntil: null,
+        pauseReason: null,
+        pickupPausedUntil: null,
+        backoffLevel: 0,
+      });
       deps.control?.pollNow();
       return;
     case "poll-now":

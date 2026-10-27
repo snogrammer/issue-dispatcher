@@ -2,7 +2,7 @@ import type { ClaudeRunResult } from "../claude/runner.js";
 import type { RateLimitInfo } from "../claude/stream.js";
 import type { Config } from "../config/schema.js";
 import { silentLogger, type Logger } from "../log.js";
-import type { StateStore } from "../state/store.js";
+import type { PauseReason, StateStore } from "../state/store.js";
 
 /**
  * Keeps the dispatcher inside Claude's usage limits, which apply to the whole
@@ -22,6 +22,10 @@ import type { StateStore } from "../state/store.js";
  *
  * Limit info only arrives with runs, so both pauses end at the reported reset
  * time rather than waiting for news.
+ *
+ * Credentials Claude Code can't use get the same hard pause and backoff, with
+ * the reason recorded so the dashboard can say so. Credentials come from the
+ * environment, so fixing them means a restart, which lifts that pause.
  */
 
 export interface Observation {
@@ -43,9 +47,20 @@ export class Governor {
     const { pausedUntil } = this.store.getGovernor();
     if (pausedUntil === null) return false;
     if (pausedUntil.getTime() > this.now().getTime()) return true;
-    this.store.setGovernor({ pausedUntil: null });
-    this.log.info("usage limit reset; resuming runs");
+    this.store.setGovernor({ pausedUntil: null, pauseReason: null });
+    this.log.info("pause over; resuming runs");
     return false;
+  }
+
+  /**
+   * At startup: drop a pause for failed auth. The fix (a new token in the
+   * environment) needs a restart, so waiting out the backoff would only delay
+   * the run that proves it. The backoff level stays, in case it still fails.
+   */
+  liftAuthPause(): void {
+    if (this.store.getGovernor().pauseReason !== "auth") return;
+    this.store.setGovernor({ pausedUntil: null, pauseReason: null });
+    this.log.info("lifted the auth pause on restart; retrying Claude Code");
   }
 
   /** No new issue may be picked up. Clears an expired pickup pause. */
@@ -63,9 +78,9 @@ export class Governor {
 
   /** Learn from a finished run. */
   observe(result: Pick<ClaudeRunResult, "kind" | "rateLimit">): Observation {
-    if (result.kind === "rate_limited") return this.pause(result.rateLimit);
+    if (result.kind === "rate_limited") return this.pause("usage", result.rateLimit);
     // Credentials don't fix themselves on a schedule: back off until someone does.
-    if (result.kind === "auth_failed") return this.pause(undefined);
+    if (result.kind === "auth_failed") return this.pause("auth", undefined);
     if (result.kind === "success" && this.store.getGovernor().backoffLevel > 0) {
       this.store.setGovernor({ backoffLevel: 0 });
     }
@@ -73,7 +88,7 @@ export class Governor {
     return { pauseStarted: false };
   }
 
-  private pause(info: RateLimitInfo | undefined): Observation {
+  private pause(reason: PauseReason, info: RateLimitInfo | undefined): Observation {
     const now = this.now().getTime();
     const wasPaused = this.isPaused();
     const { backoffLevel } = this.store.getGovernor();
@@ -89,11 +104,16 @@ export class Governor {
       pausedUntil = new Date(now + minutes * 60_000);
       level = backoffLevel + 1;
     }
-    this.store.setGovernor({ pausedUntil, backoffLevel: level });
-    this.log.warn("usage limit reached; pausing all runs", {
-      until: pausedUntil.toISOString(),
-      knownReset: level === backoffLevel,
-    });
+    this.store.setGovernor({ pausedUntil, pauseReason: reason, backoffLevel: level });
+    this.log.warn(
+      reason === "auth"
+        ? "Claude Code can't authenticate; pausing all runs"
+        : "usage limit reached; pausing all runs",
+      {
+        until: pausedUntil.toISOString(),
+        knownReset: level === backoffLevel,
+      },
+    );
     return { pauseStarted: !wasPaused, pausedUntil };
   }
 

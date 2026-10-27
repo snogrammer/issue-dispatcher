@@ -5,7 +5,14 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildArgs, childEnv, runClaude, type RunnerOptions, type RunRequest } from "./runner.js";
+import {
+  buildArgs,
+  childEnv,
+  classify,
+  runClaude,
+  type RunnerOptions,
+  type RunRequest,
+} from "./runner.js";
 
 const FAKE = path.resolve(import.meta.dirname, "../../test/fixtures/fake-claude.mjs");
 
@@ -184,6 +191,14 @@ describe("runClaude", () => {
     });
   });
 
+  it("recognizes a rejected OAuth token (#66)", async () => {
+    const { options, request } = setup("auth-401");
+    expect(await runClaude(options, request)).toMatchObject({
+      kind: "auth_failed",
+      error: "Failed to authenticate. API Error: 401 OAuth access token is invalid.",
+    });
+  });
+
   it("fails clearly on malformed output", async () => {
     const { options, request } = setup("malformed");
     const result = await runClaude(options, request);
@@ -239,4 +254,44 @@ describe("childEnv", () => {
       PATH: "/bin",
     });
   });
+});
+
+describe("classify", () => {
+  const failed = (text: string) =>
+    classify(
+      {
+        malformedLines: 0,
+        result: { subtype: "success", isError: true, resultText: text, errors: [] },
+      },
+      {
+        sessionId: "s",
+        exitCode: 1,
+        timedOut: false,
+        aborted: false,
+        spawnError: undefined,
+        stderrTail: "",
+        labelPrefix: "claude",
+        issue: 7,
+      },
+    ).kind;
+
+  it.each([
+    "Not logged in · Please run /login",
+    "Failed to authenticate. API Error: 401 OAuth access token is invalid.",
+    'API Error: 401 {"type":"error","error":{"type":"authentication_error"}}',
+    "OAuth token has expired. Please obtain a new token or refresh your existing token.",
+    "OAuth token revoked",
+    "Invalid bearer token",
+    "Invalid API key · Please run /login",
+    "Credit balance is too low",
+  ])("treats %j as unusable credentials", (text) => {
+    expect(failed(text)).toBe("auth_failed");
+  });
+
+  it.each(["API Error: 429 rate limited", "API Error: 4010 something else", "tests failed"])(
+    "does not treat %j as an auth failure",
+    (text) => {
+      expect(failed(text)).not.toBe("auth_failed");
+    },
+  );
 });

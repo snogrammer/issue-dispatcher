@@ -174,6 +174,7 @@ describe("governor", () => {
   it("defaults to not paused", () => {
     expect(StateStore.inMemory().getGovernor()).toEqual({
       pausedUntil: null,
+      pauseReason: null,
       pickupPausedUntil: null,
       backoffLevel: 0,
       manualPause: false,
@@ -185,15 +186,22 @@ describe("governor", () => {
     const until = new Date("2026-01-01T05:00:00.000Z");
     const pickup = new Date("2026-01-01T06:00:00.000Z");
     expect(
-      store.setGovernor({ pausedUntil: until, pickupPausedUntil: pickup, backoffLevel: 2 }),
+      store.setGovernor({
+        pausedUntil: until,
+        pauseReason: "usage",
+        pickupPausedUntil: pickup,
+        backoffLevel: 2,
+      }),
     ).toEqual({
       pausedUntil: until,
+      pauseReason: "usage",
       pickupPausedUntil: pickup,
       backoffLevel: 2,
       manualPause: false,
     });
-    expect(store.setGovernor({ pausedUntil: null })).toEqual({
+    expect(store.setGovernor({ pausedUntil: null, pauseReason: null })).toEqual({
       pausedUntil: null,
+      pauseReason: null,
       pickupPausedUntil: pickup,
       backoffLevel: 2,
       manualPause: false,

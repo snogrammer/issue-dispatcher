@@ -63,6 +63,8 @@ not part of the dispatcher's config; it is inherited by the `claude` process.
 Dispatcher secrets (`GITEA_TOKEN`) are removed from that process's environment,
 and the workspace holds no Git credentials while Claude runs: the dispatcher
 fetches before and pushes after each run.
+If Claude Code can't use its credentials, runs pause rather than fail; see
+[operations](operations.md#claude-code-cant-authenticate).
 
 `CLAUDE_PERMISSION_MODE=bypassPermissions` lets Claude run commands (tests,
 builds, git) without approval. That is only reasonable because the dispatcher
