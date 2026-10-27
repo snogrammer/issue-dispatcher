@@ -153,7 +153,10 @@ jobs:
             arch="${platform#*/}"; arch="${arch//\//-}"
             ref="$REGISTRY/$IMAGE:$GIT_SHA-$arch"
             echo "::group::$platform -> $ref"
+            # No attestations: with them buildx exports an index (image +
+            # attestation manifest), which can't be an entry in the index below.
             docker buildx build --platform "$platform" --load \
+              --provenance=false --sbom=false \
               --build-arg GIT_SHA="$GIT_SHA" \
               --build-arg CLAUDE_CODE_VERSION="$CLAUDE_CODE_VERSION" \
               "${extra[@]}" \
@@ -164,14 +167,16 @@ jobs:
             # docker save writes uncompressed layers; gzip them before upload.
             regctl image mod "ocidir:///tmp/oci-image:$arch" --layer-compress gzip --replace
             regctl image copy "ocidir:///tmp/oci-image:$arch" "$ref"
+            # Gitea's registry (28.x) answers MANIFEST_INVALID to an index whose
+            # entries aren't image manifests (#66), so reference the platform's
+            # image manifest by digest, whatever shape the push above took.
+            digest="$(regctl image digest --platform "$platform" "$ref")"
             echo "::endgroup::"
-            pushed+=("$platform=$ref")
+            pushed+=("$platform=$REGISTRY/$IMAGE@$digest")
           done
           rm -rf /tmp/oci-image
           # Single-platform images carry no platform in a new index entry, so set
           # it explicitly; otherwise pulls can't pick the right architecture.
-          # The index is created with its first entry: Gitea's registry (28.x)
-          # rejects an empty index as MANIFEST_INVALID (#66).
           first="${pushed[0]}"
           regctl index create "$REGISTRY/$IMAGE:$GIT_SHA-index" --ref "${first#*=}" --desc-platform "${first%%=*}"
           for entry in "${pushed[@]:1}"; do
