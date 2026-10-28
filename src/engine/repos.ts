@@ -28,7 +28,7 @@ export interface ResolvedRepos {
   skipped: SkippedRepo[];
 }
 
-export type RepoClient = Pick<GiteaClient, "getRepo" | "listOrgRepos">;
+export type RepoClient = Pick<GiteaClient, "getRepo" | "listOrgRepos" | "listUserRepos">;
 
 export async function resolveRepos(
   config: Pick<Config, "repos" | "orgs" | "mergeStyle">,
@@ -38,6 +38,15 @@ export async function resolveRepos(
   const skipped: ResolvedRepos["skipped"] = [];
 
   for (const name of config.repos) {
+    if (name.endsWith("/*")) {
+      const owner = name.slice(0, -2);
+      try {
+        for (const repo of await listOwnerRepos(owner, client)) found.set(repo.full_name, repo);
+      } catch (error) {
+        skipped.push({ name, reason: error instanceof Error ? error.message : String(error) });
+      }
+      continue;
+    }
     try {
       const repo = await client.getRepo(parseRepo(name));
       found.set(repo.full_name, repo);
@@ -74,6 +83,15 @@ export async function resolveRepos(
   }
   repos.sort((a, b) => a.fullName.localeCompare(b.fullName));
   return { repos, skipped };
+}
+
+/** An owner is an org or a plain user; Gitea has a separate endpoint for each. */
+async function listOwnerRepos(owner: string, client: RepoClient): Promise<Repository[]> {
+  try {
+    return await client.listOrgRepos(owner);
+  } catch {
+    return client.listUserRepos(owner);
+  }
 }
 
 const MERGE_STYLES: readonly MergeStyle[] = [

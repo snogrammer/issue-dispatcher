@@ -245,6 +245,10 @@ export class FakeGitea implements EngineGitea {
     return Promise.resolve([...this.repos.values()].filter((repo) => repo.owner.login === org));
   }
 
+  listUserRepos(user: string): Promise<Repository[]> {
+    return this.listOrgRepos(user);
+  }
+
   listIssues(
     ref: RepoRef,
     filter: { state?: "open" | "closed" | "all"; labels?: string[]; assignee?: string } = {},

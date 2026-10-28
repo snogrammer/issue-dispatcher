@@ -115,6 +115,10 @@ export class GiteaClient {
     return this.http.paginate(p`/orgs/${org}/repos`);
   }
 
+  listUserRepos(user: string): Promise<Repository[]> {
+    return this.http.paginate(p`/users/${user}/repos`);
+  }
+
   // --- Issues ---------------------------------------------------------------
 
   listIssues({ owner, name }: RepoRef, filter: ListIssuesFilter = {}): Promise<Issue[]> {

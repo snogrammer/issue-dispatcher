@@ -23,6 +23,7 @@ type Case = [string, (gitea: GiteaClient) => Promise<unknown>, string, string, u
 const CASES: Case[] = [
   ["current user", (g) => g.getCurrentUser(), "GET", "/user"],
   ["repo", (g) => g.getRepo(repo), "GET", "/repos/org/repo"],
+  ["user repos", (g) => g.listUserRepos("me"), "GET", `/users/me/repos?${PAGE}`],
   ["org repos", (g) => g.listOrgRepos("org"), "GET", `/orgs/org/repos?${PAGE}`],
   [
     "assigned open issues with labels",

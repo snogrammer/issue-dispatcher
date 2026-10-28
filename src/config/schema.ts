@@ -21,6 +21,8 @@ export const PERMISSION_MODES = ["bypassPermissions", "acceptEdits", "auto", "do
 export type Phase = (typeof PHASES)[number];
 
 const REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
+/** A REPOS entry: owner/repo, or owner/* for every repo of an org or user. */
+const REPO_OR_OWNER_PATTERN = /^[\w.-]+\/([\w.-]+|\*)$/;
 const NAME_PATTERN = /^[\w.-]+$/;
 
 const absolutePath = z
@@ -67,7 +69,9 @@ export const configSchema = z
       }),
     ),
     humanReviewer: z.string().regex(NAME_PATTERN),
-    repos: z.array(z.string().regex(REPO_PATTERN, "expected owner/repo")).default([]),
+    repos: z
+      .array(z.string().regex(REPO_OR_OWNER_PATTERN, "expected owner/repo or owner/*"))
+      .default([]),
     orgs: z.array(z.string().regex(NAME_PATTERN)).default([]),
     labelPrefix: z
       .string()

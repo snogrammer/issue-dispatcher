@@ -38,6 +38,34 @@ describe("resolveRepos", () => {
     expect(skipped).toEqual([]);
   });
 
+  it("expands owner/* via the org endpoint, falling back to the user's repos", async () => {
+    const gitea = new FakeGitea("bot");
+    gitea.addRepo("me/a");
+    gitea.addRepo("me/b");
+    gitea.addRepo("other/x");
+    const notAnOrg = {
+      getRepo: gitea.getRepo.bind(gitea),
+      listOrgRepos: () => Promise.reject(new Error("404 org not found")),
+      listUserRepos: gitea.listUserRepos.bind(gitea),
+    };
+
+    const { repos, skipped } = await resolveRepos({ repos: ["me/*"], orgs: [] }, notAnOrg);
+
+    expect(repos.map((repo) => repo.fullName)).toEqual(["me/a", "me/b"]);
+    expect(skipped).toEqual([]);
+  });
+
+  it("reports an owner/* that is neither an org nor a user", async () => {
+    const gitea = new FakeGitea("bot");
+    const fail = () => Promise.reject(new Error("404"));
+    const { repos, skipped } = await resolveRepos(
+      { repos: ["ghost/*"], orgs: [] },
+      { getRepo: gitea.getRepo.bind(gitea), listOrgRepos: fail, listUserRepos: fail },
+    );
+    expect(repos).toEqual([]);
+    expect(skipped).toEqual([{ name: "ghost/*", reason: "404" }]);
+  });
+
   it("lets MERGE_STYLE override each repo's default", async () => {
     const gitea = new FakeGitea("bot");
     gitea.addRepo("team/b", { mergeStyle: "squash" });
