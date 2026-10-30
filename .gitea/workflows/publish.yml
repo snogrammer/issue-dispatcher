@@ -219,6 +219,8 @@ jobs:
           REGISTRY_REF_NAME: refs/heads/main # branch Portainer pulls the stack file from
         run: bash deploy/portainer-redeploy.sh
 
-      - name: Cleanup containers and images
+      # Only this job's own tags. The runner's Docker daemon is shared with other
+      # repos, so never prune it; the host's nightly cron cleans dangling images.
+      - name: Clean up images
         if: always()
-        run: docker system prune -af
+        run: docker image ls -q --filter "reference=$REGISTRY/$IMAGE*" | sort -u | xargs -r docker image rm -f
