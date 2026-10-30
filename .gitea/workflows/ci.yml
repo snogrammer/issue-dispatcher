@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ gitea.workflow }}-${{ gitea.event_name }}-${{ gitea.ref }}
+  cancel-in-progress: ${{ gitea.ref != 'refs/heads/main' }}
+
 jobs:
   # A single job on purpose: the Actions runner allows only a few concurrent
   # jobs, and the dispatcher itself opens PRs, so CI must stay cheap.
