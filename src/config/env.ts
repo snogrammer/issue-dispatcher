@@ -17,6 +17,7 @@ export interface EnvVar {
 
 export const ENV_VARS: readonly EnvVar[] = [
   { name: "GITEA_URL", path: ["gitea", "url"], kind: "string" },
+  { name: "GITEA_PUBLIC_URL", path: ["gitea", "publicUrl"], kind: "string" },
   { name: "GITEA_TOKEN", path: ["gitea", "token"], kind: "string", secret: true },
   { name: "BOT_USERNAME", path: ["gitea", "botUsername"], kind: "string" },
   { name: "HUMAN_REVIEWER", path: ["humanReviewer"], kind: "string" },

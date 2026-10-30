@@ -31,7 +31,7 @@ import {
 import { CiQueue } from "./ci-queue.js";
 import { Governor, type Observation } from "./governor.js";
 import { KeyedLock } from "./lock.js";
-import { orderCandidates } from "./pickup.js";
+import { orderCandidates, orderPullCandidates, priorityRank } from "./pickup.js";
 import { QuestionDesk } from "./questions.js";
 import { resolveRepos, type SkippedRepo, type WatchedRepo } from "./repos.js";
 
@@ -62,6 +62,7 @@ export type EngineGitea = Pick<
   | "listUserRepos"
   | "listIssues"
   | "getIssue"
+  | "getPull"
   | "listComments"
   | "createComment"
   | "listDependencies"
@@ -104,6 +105,17 @@ export interface EngineSnapshot {
   /** Configured repos the engine can't work on, and why (empty, archived, lookup error). */
   skipped: { name: string; reason: string }[];
   running: { repo: string; issue: number; phase: Phase; startedAt: Date }[];
+  /** Assigned tickets (issues and PRs) waiting for a free slot, in pickup order per repo. */
+  queue: QueuedTicket[];
+}
+
+export interface QueuedTicket {
+  repo: string;
+  number: number;
+  title: string;
+  /** A pull request assigned to the bot, as opposed to an issue. */
+  pullRequest: boolean;
+  priority: "high" | "normal" | "low";
 }
 
 interface InFlight {
@@ -140,6 +152,8 @@ export class Engine {
   private readonly inFlight = new Map<string, InFlight>();
   private readonly labelled = new Set<string>();
   private repos: WatchedRepo[] = [];
+  /** Tickets assigned to the bot and waiting, per repo, as of the last poll. */
+  private readonly queue = new Map<string, QueuedTicket[]>();
   /** Skipped repos from the last refresh, keyed by name, so each skip is logged once. */
   private skipped = new Map<string, string>();
   /** `owner/name#n` issues already told their repo is empty (or found already told). */
@@ -196,6 +210,7 @@ export class Engine {
         phase: run.phase,
         startedAt: run.startedAt,
       })),
+      queue: this.repos.flatMap((repo) => this.queue.get(repo.fullName) ?? []),
     };
   }
 
@@ -451,11 +466,41 @@ export class Engine {
     const held = this.store.activeIssue(repo.fullName);
     if (held !== null) {
       await this.reconcileActive(repo, held);
+      await this.trackQueue(repo);
       return;
     }
+    const candidates = await this.candidates(repo);
+    this.setQueue(repo, candidates);
     if (!this.hasCapacity() || this.governor.pickupsPaused()) return;
-    const next = await this.pickNext(repo);
-    if (next) await this.begin(repo, next);
+    const next = await this.pickNext(repo, candidates);
+    if (!next) return;
+    await this.begin(repo, next);
+    this.setQueue(
+      repo,
+      candidates.filter((issue) => issue.number !== next.number),
+    );
+  }
+
+  /** Keep the queue current while the repo's slot is held; a failed lookup keeps the old one. */
+  private async trackQueue(repo: WatchedRepo): Promise<void> {
+    try {
+      this.setQueue(repo, await this.candidates(repo));
+    } catch (error) {
+      this.log.warn("could not list the assigned queue", { repo: repo.fullName, error });
+    }
+  }
+
+  private setQueue(repo: WatchedRepo, candidates: Issue[]): void {
+    this.queue.set(
+      repo.fullName,
+      candidates.map((issue) => ({
+        repo: repo.fullName,
+        number: issue.number,
+        title: issue.title,
+        pullRequest: issue.pull_request !== null,
+        priority: (["high", "normal", "low"] as const)[priorityRank(issue)] ?? "normal",
+      })),
+    );
   }
 
   private async reconcileActive(repo: WatchedRepo, number: number): Promise<void> {
@@ -511,11 +556,39 @@ export class Engine {
     }
   }
 
-  private async pickNext(repo: WatchedRepo): Promise<Issue | undefined> {
-    const assigned = (
-      await this.gitea.listIssues(repo.ref, { assignee: this.config.gitea.botUsername })
-    ).filter((issue) => this.isAssigned(issue));
-    for (const issue of orderCandidates(assigned, this.config.labelPrefix)) {
+  /**
+   * Assigned tickets the repo could take next, in pickup order. PRs come
+   * first: they're assigned to get something unstuck, and need no dependency check.
+   */
+  private async candidates(repo: WatchedRepo): Promise<Issue[]> {
+    const assignee = this.config.gitea.botUsername;
+    const [issues, pulls] = await Promise.all([
+      this.gitea.listIssues(repo.ref, { assignee }),
+      this.gitea.listIssues(repo.ref, { assignee, type: "pulls" }),
+    ]);
+    const taken = new Set(
+      this.store
+        .activeWork()
+        .filter((work) => work.repo === repo.fullName)
+        .flatMap((work) => work.prStack),
+    );
+    const prefix = this.config.labelPrefix;
+    return [
+      ...orderPullCandidates(
+        pulls.filter((issue) => this.isAssigned(issue)),
+        prefix,
+        taken,
+      ),
+      ...orderCandidates(
+        issues.filter((issue) => this.isAssigned(issue)),
+        prefix,
+      ),
+    ];
+  }
+
+  private async pickNext(repo: WatchedRepo, candidates: Issue[]): Promise<Issue | undefined> {
+    for (const issue of candidates) {
+      if (issue.pull_request !== null) return issue;
       const blockers = await this.gitea.listDependencies(repo.ref, issue.number);
       if (blockers.some((blocker) => blocker.state === "open")) continue;
       return issue;
@@ -523,7 +596,35 @@ export class Engine {
     return undefined;
   }
 
+  /**
+   * A PR assigned to the bot goes straight to review: the lifecycle already
+   * fixes CI, conflicts and review notes on a PR and merges it when green.
+   */
+  private async beginPull(repo: WatchedRepo, issue: Issue): Promise<void> {
+    const pull = await this.gitea.getPull(repo.ref, issue.number);
+    const branch = pull.head.ref;
+    await this.gitea.addLabels(repo.ref, issue.number, [
+      stateLabel(this.config.labelPrefix, "in-review"),
+    ]);
+    this.store.claim(repo.fullName, issue.number, { state: "in-review", branch });
+    this.store.updateWork(repo.fullName, issue.number, {
+      prStack: [issue.number],
+      lastSha: pull.head.sha,
+      fixAttempts: 0,
+    });
+    this.log.info("picked up pull request", { repo: repo.fullName, pull: issue.number, branch });
+    await this.gitea.createComment(
+      repo.ref,
+      issue.number,
+      `Picked up by ${this.config.gitea.botUsername}. I'll fix merge conflicts and failing CI on \`${branch}\`, and merge it once CI passes.`,
+    );
+  }
+
   private async begin(repo: WatchedRepo, issue: Issue): Promise<void> {
+    if (issue.pull_request !== null) {
+      await this.beginPull(repo, issue);
+      return;
+    }
     const branch = branchName(this.config.labelPrefix, issue.number, issue.title);
     // Label in Gitea first, so a crash between the two leaves a rebuildable trail.
     const labels = await this.gitea.addLabels(repo.ref, issue.number, [

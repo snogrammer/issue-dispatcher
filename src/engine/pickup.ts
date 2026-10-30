@@ -9,8 +9,29 @@ import type { Issue } from "../gitea/types.js";
  * by the engine, which needs the API for that.
  */
 export function orderCandidates(issues: Issue[], prefix: string): Issue[] {
+  return rank(
+    issues.filter((issue) => issue.pull_request === null),
+    prefix,
+  );
+}
+
+/**
+ * Pull requests assigned to the bot, in pickup order. Same rules as issues,
+ * and PRs already in a work item's stack (`taken`) are left to that item.
+ */
+export function orderPullCandidates(
+  pulls: Issue[],
+  prefix: string,
+  taken: ReadonlySet<number> = new Set(),
+): Issue[] {
+  return rank(
+    pulls.filter((issue) => issue.pull_request !== null && !taken.has(issue.number)),
+    prefix,
+  );
+}
+
+function rank(issues: Issue[], prefix: string): Issue[] {
   return issues
-    .filter((issue) => issue.pull_request === null)
     .filter((issue) => {
       const names = issue.labels.map((label) => label.name);
       return stateFromLabels(prefix, names) === undefined && !names.includes(questionLabel(prefix));

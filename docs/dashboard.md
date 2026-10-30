@@ -12,13 +12,13 @@ proxy sends `X-Forwarded-Proto: https`.
 
 ## Pages
 
-| Page             | What it shows                                                                                                                                                           |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Overview**     | Health and last poll, sessions in use, pause banners (usage limit, near-limit, manual pause, CI backed up), runs in progress, held work, cost tiles, recent runs, repos |
-| **Work**         | Each issue the bot holds: state, branch, PR stack, fix rounds. Click an issue for its run timeline, with model, effort, outcome, cost, tokens and errors                |
-| **Runs & costs** | Daily cost chart, cost by repo and by model for 7/30/90 days, and the full run history filtered by repo, phase, outcome or model                                        |
-| **Config**       | Every runtime setting with its current value and where it comes from (default, file, env, dashboard), editable. Read-only settings are listed below                     |
-| **Logs**         | The last 1,000 log lines, then live as they're written. Filter by level or text, pause, clear                                                                           |
+| Page             | What it shows                                                                                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Overview**     | Health and last poll, sessions in use, pause banners (usage limit, near-limit, manual pause, CI backed up), runs in progress, held work, the queue of assigned tickets still waiting, cost tiles, recent runs, repos |
+| **Work**         | Each issue the bot holds: state, branch, PR stack, fix rounds. Click an issue for its run timeline, with model, effort, outcome, cost, tokens and errors                                                             |
+| **Runs & costs** | Daily cost chart, cost by repo and by model for 7/30/90 days, and the full run history filtered by repo, phase, outcome or model                                                                                     |
+| **Config**       | Every runtime setting with its current value and where it comes from (default, file, env, dashboard), editable. Read-only settings are listed below                                                                  |
+| **Logs**         | The last 1,000 log lines, then live as they're written. Filter by level or text, pause, clear                                                                                                                        |
 
 Overview and Work refresh every 5 seconds. Issue, PR and repo names link to
 Gitea.

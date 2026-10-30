@@ -54,6 +54,7 @@ function deps(options: Options = {}) {
     repos: ["org/a"],
     skipped: [],
     running: [],
+    queue: [],
     ...options.snapshot,
   };
   const control = { pollNow: vi.fn() };
@@ -238,6 +239,10 @@ describe("status server", () => {
         running: [running],
         ciBusy: true,
         skipped: [{ name: "org/new", reason: "empty" }],
+        queue: [
+          { repo: "org/a", number: 9, title: "Next", pullRequest: false, priority: "high" },
+          { repo: "org/a", number: 11, title: "Fix PR", pullRequest: true, priority: "normal" },
+        ],
       },
     });
     store.claim("org/a", 4, { branch: "claude/4-x" });
@@ -254,6 +259,14 @@ describe("status server", () => {
       version: "1.2.3",
       repos: ["org/a"],
       skippedRepos: [{ name: "org/new", reason: "empty" }],
+      queue: {
+        total: 3,
+        waiting: 2,
+        items: [
+          { number: 9, priority: "high" },
+          { number: 11, pullRequest: true },
+        ],
+      },
       work: [
         {
           repo: "org/a",
@@ -405,6 +418,15 @@ describe("status server", () => {
         analytics: null,
       });
       expect((await call("/api/login")).body).toEqual({ error: "not found" });
+    });
+
+    it("links to Gitea's public URL when one is set", async () => {
+      const { d } = deps({ env: { GITEA_PUBLIC_URL: "https://git.example.org/" } });
+      server = await startStatusServer(d, 0);
+      const headers = await login();
+      expect((await call("/api/session", { headers })).body).toMatchObject({
+        giteaUrl: "https://git.example.org",
+      });
     });
 
     it("lets a cookie session or a bearer token see everything", async () => {

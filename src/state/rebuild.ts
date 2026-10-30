@@ -66,10 +66,12 @@ async function rebuildRepo(
 ): Promise<void> {
   const repo = `${repoRef.owner}/${repoRef.name}`;
   const labels = stateLabels(options.labelPrefix);
-  const issues = await client.listIssues(repoRef, {
-    assignee: options.botUsername,
-    labels,
-  });
+  // Gitea lists issues and PRs apart; PRs assigned to the bot hold slots too.
+  const filter = { assignee: options.botUsername, labels };
+  const issues = [
+    ...(await client.listIssues(repoRef, filter)),
+    ...(await client.listIssues(repoRef, { ...filter, type: "pulls" })),
+  ];
   // Re-check assignee and labels locally: Gitea drops label names that don't
   // exist from the filter, and with none left it returns every assigned issue
   // (seen on 1.27). Don't trust the server-side filters alone.
@@ -104,8 +106,10 @@ async function rebuildRepo(
 
   const pulls = await client.listPulls(repoRef, { state: "open" });
   const stack = orderStack(
-    pulls.filter(
-      (pull) => issueFromBranch(options.labelPrefix, pull.head.ref) === kept.issue.number,
+    pulls.filter((pull) =>
+      kept.issue.pull_request !== null
+        ? pull.number === kept.issue.number
+        : issueFromBranch(options.labelPrefix, pull.head.ref) === kept.issue.number,
     ),
   );
 

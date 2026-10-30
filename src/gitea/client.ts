@@ -37,6 +37,8 @@ export interface ListIssuesFilter {
   labels?: string[];
   /** Only issues assigned to this username. */
   assignee?: string;
+  /** Plain issues (the default) or pull requests; Gitea lists them apart. */
+  type?: "issues" | "pulls";
 }
 
 export interface CreateIssueInput {
@@ -123,7 +125,7 @@ export class GiteaClient {
 
   listIssues({ owner, name }: RepoRef, filter: ListIssuesFilter = {}): Promise<Issue[]> {
     return this.http.paginate(p`/repos/${owner}/${name}/issues`, {
-      type: "issues",
+      type: filter.type ?? "issues",
       state: filter.state ?? "open",
       labels: filter.labels?.join(","),
       // Despite the name, Gitea's `assigned_by` filters by assignee.

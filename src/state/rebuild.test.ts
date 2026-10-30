@@ -12,12 +12,14 @@ function issue(
   labels: string[],
   createdAt = `2026-01-0${String(number)}T00:00:00Z`,
   assignees = ["bot"],
+  pullRequest = false,
 ) {
   return {
     number,
     labels: labels.map((name, id) => ({ id, name })),
     assignees: assignees.map((login, id) => ({ id, login })),
     created_at: createdAt,
+    pull_request: pullRequest ? { merged: false } : null,
   } as Issue;
 }
 function pull(number: number, head: string, base = "main") {
@@ -29,7 +31,9 @@ function fakeClient(issues: Issue[], pulls: PullRequest[] = []) {
   const client: RebuildClient = {
     listIssues: (repo, filter) => {
       calls.push(["listIssues", repo, filter]);
-      return Promise.resolve(issues);
+      return Promise.resolve(
+        issues.filter((item) => (item.pull_request !== null) === (filter?.type === "pulls")),
+      );
     },
     listPulls: (repo, filter) => {
       calls.push(["listPulls", repo, filter]);
@@ -45,10 +49,10 @@ describe("rebuildFromGitea", () => {
     const broken = { owner: "org", name: "no-issues" };
     const notFound = new Error("GET /repos/org/no-issues/issues failed (404): not found");
     const client: RebuildClient = {
-      listIssues: (repo) =>
+      listIssues: (repo, filter) =>
         repo.name === broken.name
           ? Promise.reject(notFound)
-          : Promise.resolve([issue(4, ["claude:working"])]),
+          : Promise.resolve(filter?.type === "pulls" ? [] : [issue(4, ["claude:working"])]),
       listPulls: () => Promise.resolve([]),
     };
 
@@ -78,6 +82,15 @@ describe("rebuildFromGitea", () => {
       REPO,
       { assignee: "bot", labels: ["claude:working", "claude:in-review", "claude:blocked"] },
     ]);
+    expect(calls[1]).toEqual([
+      "listIssues",
+      REPO,
+      {
+        assignee: "bot",
+        labels: ["claude:working", "claude:in-review", "claude:blocked"],
+        type: "pulls",
+      },
+    ]);
     expect(report).toEqual({
       restored: [{ repo: "org/repo", issue: 4, state: "in-review", prStack: [11, 12] }],
       released: [],
@@ -89,6 +102,21 @@ describe("rebuildFromGitea", () => {
       branch: "claude/4-x",
       prStack: [11, 12],
     });
+  });
+
+  it("restores a PR assigned to the bot as its own stack", async () => {
+    const store = StateStore.inMemory();
+    const { client } = fakeClient(
+      [issue(21, ["claude:in-review"], undefined, ["bot"], true)],
+      [pull(21, "feature/x"), pull(22, "feature/y")],
+    );
+
+    const report = await rebuildFromGitea(store, client, OPTIONS);
+
+    expect(report.restored).toEqual([
+      { repo: "org/repo", issue: 21, state: "in-review", prStack: [21] },
+    ]);
+    expect(store.getWork("org/repo", 21)).toMatchObject({ branch: "feature/x", prStack: [21] });
   });
 
   it("ignores issues without a state label (Gitea drops unknown label filters)", async () => {
@@ -167,8 +195,10 @@ describe("rebuildFromGitea", () => {
     const store = StateStore.inMemory();
     store.claim("org/b", 1);
     const client: RebuildClient = {
-      listIssues: (repo) =>
-        Promise.resolve(repo.name === "a" ? [issue(3, ["claude:working"])] : []),
+      listIssues: (repo, filter) =>
+        Promise.resolve(
+          repo.name === "a" && filter?.type !== "pulls" ? [issue(3, ["claude:working"])] : [],
+        ),
       listPulls: () => Promise.resolve([]),
     };
 

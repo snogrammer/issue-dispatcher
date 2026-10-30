@@ -12,7 +12,7 @@ import type { StateStore } from "./state/store.js";
  *   It also names the running commit, so a redeploy can wait for the new image.
  * - `GET /status`: what it's doing: watched repos (and skipped ones, with
  *   why), each held issue and its
- *   state, runs in progress, usage-limit, auth and CI pauses, recent runs and cost.
+ *   state, the assigned tickets still waiting their turn, runs in progress, usage-limit, auth and CI pauses, recent runs and cost.
  *
  * It exposes repo names, issue numbers and costs, never tokens. The
  * dashboard's overview page is built from the same `/status` document.
@@ -71,6 +71,12 @@ export function status(deps: StatusDeps, processStartedAt: Date): Record<string,
       fixAttempts: work.fixAttempts,
       updatedAt: work.updatedAt,
     })),
+    queue: {
+      /** Waiting for a free slot, plus the issues held right now. */
+      total: snapshot.queue.length + deps.store.activeWork().length,
+      waiting: snapshot.queue.length,
+      items: snapshot.queue,
+    },
     running: snapshot.running.map((run) => ({
       ...run,
       startedAt: run.startedAt.toISOString(),

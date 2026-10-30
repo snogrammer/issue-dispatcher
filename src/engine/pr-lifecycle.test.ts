@@ -646,3 +646,78 @@ describe("logTail", () => {
     expect(tail.at(-1)).toBe("line 199");
   });
 });
+
+describe("pull requests assigned to the bot", () => {
+  function assigned(options: { mergeable?: boolean } = {}) {
+    const fixture = setup({ REPOS: A }, (deps) => prLifecycle(deps));
+    fixture.gitea.addAssignedPull(A, { number: 7, head: "feature/x", ...options });
+    return fixture;
+  }
+
+  it("takes the PR into review and merges it once CI passes", async () => {
+    const { gitea, engine, store, runner } = assigned();
+
+    await cycle(engine);
+
+    expect(store.getWork(A, 7)).toMatchObject({
+      state: "in-review",
+      branch: "feature/x",
+      prStack: [7],
+    });
+    expect(gitea.labelNames(A, 7)).toEqual(["claude:in-review"]);
+    expect(gitea.commentsOn(A, 7)[0]).toContain("Picked up by bot.");
+    expect(runner.requests).toEqual([]);
+
+    gitea.setStatus(gitea.pull(A, 7).head.sha, "success");
+    await cycle(engine);
+
+    expect(gitea.merges.map((merge) => merge.pull)).toEqual([7]);
+    expect(store.activeIssue(A)).toBeNull();
+    expect(gitea.labelNames(A, 7)).toEqual([]);
+  });
+
+  it("hands a conflicting PR to a rebase round on its own branch", async () => {
+    const { gitea, engine, runner, workspace } = assigned({ mergeable: false });
+    runner.script({
+      report: report(7, { branches: [{ name: "feature/x", title: "Pull 7", body: "" }] }),
+    });
+
+    await cycle(engine);
+    await cycle(engine);
+
+    expect(runner.requests.at(-1)).toMatchObject({ phase: "rebase" });
+    expect(workspace(A).prepared.at(-1)).toEqual(["feature/x", "main"]);
+    expect(gitea.merges).toEqual([]);
+  });
+
+  it("works on assigned PRs before issues, and lists the rest in the queue", async () => {
+    const { gitea, engine, store } = assigned();
+    gitea.addIssue(A, { number: 3 });
+    gitea.addIssue(A, { number: 4, labels: ["priority:high"] });
+
+    await engine.tick();
+    await engine.idle();
+
+    expect(store.activeIssue(A)).toBe(7);
+    expect(engine.snapshot().queue).toEqual([
+      { repo: A, number: 4, title: "Issue 4", pullRequest: false, priority: "high" },
+      { repo: A, number: 3, title: "Issue 3", pullRequest: false, priority: "normal" },
+    ]);
+  });
+
+  it("restores the PR after a restart instead of picking it up again", async () => {
+    const { gitea, make, store } = assigned();
+    await cycle(make());
+    const comments = gitea.commentsOn(A, 7).length;
+    store.release(A, "abandoned");
+    store.claim(A, 99);
+    store.release(A, "abandoned");
+
+    const restarted = make();
+    await restarted.start();
+    await restarted.stop();
+
+    expect(store.getWork(A, 7)).toMatchObject({ state: "in-review", prStack: [7] });
+    expect(gitea.commentsOn(A, 7)).toHaveLength(comments);
+  });
+});

@@ -214,6 +214,12 @@ class PrLifecycle implements Lifecycle {
       return;
     }
 
+    // A PR handed to the bot is often stuck on a conflict; CI may not even run on one.
+    if (context.issue.pull_request !== null && !pull.mergeable) {
+      await this.fixRound(current, pull, actions, "rebase", { onto: pull.base.ref });
+      return;
+    }
+
     const status = await this.gitea.getCombinedStatus(context.repo.ref, pull.head.sha);
     if ((status.statuses ?? []).length === 0) {
       await this.withoutCi(current, pull, actions);

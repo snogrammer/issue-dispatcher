@@ -27,6 +27,8 @@
 #   DISPATCHER_MEMORY_LIMIT  memory limit (default: 4g)
 #   GITEA_URL                the Gitea instance: http://gitea:3000 over
 #                            gitea_internal, or its public URL
+#   GITEA_PUBLIC_URL         optional: Gitea's public URL for links, when GITEA_URL
+#                            is the internal one (default: GITEA_URL)
 #   TEST_POSTGRES_PASSWORD   password of the test Postgres (default: postgres)
 #
 # State lives in /srv/claude-dispatcher/data (SQLite) and checkouts in
@@ -57,6 +59,7 @@ services:
       # The test services below, which Claude is told to run the tests against.
       - 'TEST_SERVICES=postgres://postgres:${TEST_POSTGRES_PASSWORD:-postgres}@postgres:5432,redis://redis:6379'
       - 'GITEA_URL=${GITEA_URL:?}'
+      - 'GITEA_PUBLIC_URL=${GITEA_PUBLIC_URL:-}'
       - 'GITEA_TOKEN=${GITEA_TOKEN:?}'
       - 'BOT_USERNAME=${BOT_USERNAME:?}'
       - 'HUMAN_REVIEWER=${HUMAN_REVIEWER:?}'

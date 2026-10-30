@@ -335,7 +335,7 @@ async function overviewPage(gen) {
   const status = await api("/status");
   if (gen !== generation) return;
   renderHealth(status);
-  const { pauses, sessions, costs, work, running } = status;
+  const { pauses, sessions, costs, work, running, queue } = status;
 
   const actions = [
     h(
@@ -460,6 +460,7 @@ async function overviewPage(gen) {
       { class: "grid tiles" },
       tile("Sessions", `${sessions.running} / ${sessions.max}`, "Claude runs in progress"),
       tile("Held issues", work.length, stateSummary || "none"),
+      tile("Assigned", queue.total, `${queue.waiting} waiting`),
       tile("Watching", status.repos.length, status.repos.length === 1 ? "repo" : "repos"),
       tile("Cost 24h", usd(costs.last24h.costUsd), `${runCount(costs.last24h.runs)}`),
       tile("Cost 7d", usd(costs.last7d.costUsd), `${runCount(costs.last7d.runs)}`),
@@ -493,6 +494,29 @@ async function overviewPage(gen) {
       { class: "card" },
       h("h2", {}, "Held work"),
       table(WORK_HEADERS, workRows(work), "No issues held. Assign one to the bot to start."),
+    ),
+    h(
+      "div",
+      { class: "card" },
+      h("h2", {}, `Up next (${queue.waiting})`),
+      table(
+        ["Repo", "Ticket", "Title", "Priority"],
+        queue.items.map((item) =>
+          h(
+            "tr",
+            {},
+            h("td", {}, repoLink(item.repo)),
+            h(
+              "td",
+              {},
+              item.pullRequest ? prLink(item.repo, item.number) : issueLink(item.repo, item.number),
+            ),
+            h("td", {}, item.title),
+            h("td", {}, item.priority === "normal" ? "—" : item.priority),
+          ),
+        ),
+        "Nothing else is assigned to the bot.",
+      ),
     ),
     h(
       "div",

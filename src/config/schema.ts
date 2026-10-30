@@ -64,6 +64,11 @@ export const configSchema = z
       (value) => value ?? {},
       z.strictObject({
         url: z.url({ protocol: /^https?$/ }).transform((value) => value.replace(/\/+$/, "")),
+        /** Where people reach Gitea, for links; `url` may be an internal Docker address. */
+        publicUrl: z
+          .url({ protocol: /^https?$/ })
+          .transform((value) => value.replace(/\/+$/, ""))
+          .optional(),
         token: z.string().min(1),
         botUsername: z.string().regex(NAME_PATTERN),
       }),
@@ -216,6 +221,7 @@ export const configSchema = z
   })
   .transform((config) => ({
     ...config,
+    gitea: { ...config.gitea, publicUrl: config.gitea.publicUrl ?? config.gitea.url },
     git: {
       userName: config.git.userName ?? config.gitea.botUsername,
       // Gitea's default no-reply domain is `noreply.<host>`.

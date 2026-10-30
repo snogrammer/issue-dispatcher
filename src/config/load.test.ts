@@ -65,6 +65,15 @@ describe("loadConfig from env", () => {
     expect(config.paths.dataDir).toBe(path.resolve("data"));
   });
 
+  it("defaults the public Gitea URL to GITEA_URL, and takes GITEA_PUBLIC_URL", () => {
+    expect(load(REQUIRED_ENV).gitea.publicUrl).toBe("https://gitea.example.com");
+    const config = load({ ...REQUIRED_ENV, GITEA_PUBLIC_URL: "https://git.example.org/" });
+    expect(config.gitea).toMatchObject({
+      url: "https://gitea.example.com",
+      publicUrl: "https://git.example.org",
+    });
+  });
+
   it("parses ints, bools and lists", () => {
     const config = load({
       ...REQUIRED_ENV,

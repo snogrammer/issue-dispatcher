@@ -2,7 +2,14 @@
 
 1. **Assign an issue to the bot.** Each watched repo works on one issue at a
    time: `priority:high` first, then unlabeled, then `priority:low`, oldest
-   first. Issues blocked by an open Gitea dependency wait.
+   first. Issues blocked by an open Gitea dependency wait. The dashboard
+   lists the assigned tickets still waiting their turn.
+
+   **Assigning a pull request** works too: the bot takes it straight to
+   review, rebases it when it conflicts, fixes failing CI and review notes,
+   and merges it once CI passes. Useful for a quick fix when you're away from
+   a computer. Pull requests are picked up before issues.
+
 2. **Claude implements it** on `claude/<n>-<slug>` and commits, after running
    the repo's checks (whatever its CI runs) locally. The repo's pinned
    language versions are installed first (see

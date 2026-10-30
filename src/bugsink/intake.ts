@@ -295,7 +295,7 @@ export class BugsinkDesk {
     });
     await this.tellBugsink(
       link.bugsinkIssue,
-      `Fix merged for ${this.config.gitea.url}/${link.repo}/issues/${String(link.issue)}; resolved by ${this.bot()}.`,
+      `Fix merged for ${this.config.gitea.publicUrl}/${link.repo}/issues/${String(link.issue)}; resolved by ${this.bot()}.`,
     );
   }
 

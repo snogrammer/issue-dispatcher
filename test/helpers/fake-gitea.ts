@@ -110,6 +110,39 @@ export class FakeGitea implements EngineGitea {
     return issue;
   }
 
+  /**
+   * An open PR the way Gitea lists it for assignment: a PR plus its issue
+   * twin (same number) carrying labels and assignees.
+   */
+  addAssignedPull(
+    repo: string,
+    seed: { number: number; head: string; assignees?: string[]; mergeable?: boolean },
+  ): PullRequest {
+    this.addIssue(repo, {
+      number: seed.number,
+      ...(seed.assignees ? { assignees: seed.assignees } : {}),
+    }).pull_request = { merged: false };
+    const pull: PullRequest = {
+      id: this.nextId++,
+      number: seed.number,
+      title: `Pull ${String(seed.number)}`,
+      body: "",
+      state: "open",
+      draft: false,
+      merged: false,
+      mergeable: seed.mergeable ?? true,
+      merge_commit_sha: null,
+      html_url: `https://gitea.example.com/${repo}/pulls/${String(seed.number)}`,
+      user: user("human"),
+      labels: [],
+      head: { label: seed.head, ref: seed.head, sha: this.headOf(repo, seed.head) },
+      base: { label: "main", ref: "main", sha: "base-sha" },
+      updated_at: "",
+    };
+    this.pulls.set(repo, [...(this.pulls.get(repo) ?? []), pull]);
+    return pull;
+  }
+
   issue(repo: string, number: number): Issue {
     const issue = this.repoIssues(repo).get(number);
     if (!issue) throw new Error(`no issue ${repo}#${String(number)}`);
@@ -251,7 +284,12 @@ export class FakeGitea implements EngineGitea {
 
   listIssues(
     ref: RepoRef,
-    filter: { state?: "open" | "closed" | "all"; labels?: string[]; assignee?: string } = {},
+    filter: {
+      state?: "open" | "closed" | "all";
+      labels?: string[];
+      assignee?: string;
+      type?: "issues" | "pulls";
+    } = {},
   ): Promise<Issue[]> {
     if (this.repos.get(key(ref))?.has_issues === false) {
       return Promise.reject(notFound("GET", `/repos/${key(ref)}/issues`));
@@ -259,6 +297,7 @@ export class FakeGitea implements EngineGitea {
     const state = filter.state ?? "open";
     const issues = [...this.repoIssues(key(ref)).values()]
       .filter((issue) => state === "all" || issue.state === state)
+      .filter((issue) => (issue.pull_request !== null) === ((filter.type ?? "issues") === "pulls"))
       .filter(
         (issue) =>
           filter.assignee === undefined ||
@@ -420,6 +459,8 @@ export class FakeGitea implements EngineGitea {
     this.merges.push({ repo: key(ref), pull: index, input });
     pull.merged = true;
     pull.state = "closed";
+    const twin = this.repoIssues(key(ref)).get(index);
+    if (twin?.pull_request) twin.state = "closed";
     if (input.deleteBranch) this.deletedBranches.push(pull.head.ref);
     return Promise.resolve();
   }

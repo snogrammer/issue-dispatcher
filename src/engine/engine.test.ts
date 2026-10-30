@@ -828,3 +828,36 @@ describe("restarts", () => {
     expect(runner.requests.at(-1)).toMatchObject({ issue: 1, sessionId: "session-2" });
   });
 });
+
+describe("assigned queue", () => {
+  it("lists assigned tickets still waiting, not the one being worked on", async () => {
+    const { gitea, engine, runner } = setup({ REPOS: A });
+    gitea.addIssue(A, { number: 1 });
+    gitea.addIssue(A, { number: 2, labels: ["priority:low"] });
+    gitea.addIssue(A, { number: 3, assignees: ["someone"] });
+    runner.script("hold");
+
+    await engine.tick();
+
+    expect(engine.snapshot().queue).toEqual([
+      { repo: A, number: 2, title: "Issue 2", pullRequest: false, priority: "low" },
+    ]);
+    runner.release();
+    await engine.idle();
+  });
+
+  it("keeps the queue current while the repo's slot is held", async () => {
+    const { gitea, engine, runner } = setup({ REPOS: A });
+    gitea.addIssue(A, { number: 1 });
+    runner.script("hold");
+    await engine.tick();
+    expect(engine.snapshot().queue).toEqual([]);
+
+    gitea.addIssue(A, { number: 5 });
+    await engine.tick();
+
+    expect(engine.snapshot().queue.map((ticket) => ticket.number)).toEqual([5]);
+    runner.release();
+    await engine.idle();
+  });
+});

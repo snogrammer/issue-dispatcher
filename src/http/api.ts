@@ -99,7 +99,7 @@ export async function handleApi(
       analytics,
       configEditable: deps.configManager !== undefined,
       version: deps.version,
-      giteaUrl: deps.config.gitea.url,
+      giteaUrl: deps.config.gitea.publicUrl,
       botUsername: deps.config.gitea.botUsername,
       humanReviewer: deps.config.humanReviewer,
     });
